@@ -15,6 +15,9 @@
 #include "intersections.h"
 #include "interactions.h"
 
+#include "../stream_compaction/efficient.h"
+#include "../stream_compaction/thrust.h"
+
 #define ERRORCHECK 1
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
@@ -82,6 +85,9 @@ static PathSegment* dev_paths = NULL;
 static ShadeableIntersection* dev_intersections = NULL;
 // TODO: static variables for device memory, any extra info you need, etc
 // ...
+static PathSegment* dev_paths_temp = NULL;
+static int* dev_active_flags = NULL;
+static int* dev_active_flags_temp = NULL;
 
 void InitDataContainer(GuiDataContainer* imGuiData)
 {
@@ -110,6 +116,9 @@ void pathtraceInit(Scene* scene)
     cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
 
     // TODO: initialize any extra device memeory you need
+    cudaMalloc(&dev_paths_temp, pixelcount * sizeof(PathSegment));
+    cudaMalloc(&dev_active_flags, pixelcount * sizeof(int));
+    cudaMalloc(&dev_active_flags_temp, pixelcount * sizeof(int));
 
     checkCUDAError("pathtraceInit");
 }
@@ -122,7 +131,9 @@ void pathtraceFree()
     cudaFree(dev_materials);
     cudaFree(dev_intersections);
     // TODO: clean up any extra device memory you created
-
+    cudaFree(dev_paths_temp);
+    cudaFree(dev_active_flags);
+    cudaFree(dev_active_flags_temp);
     checkCUDAError("pathtraceFree");
 }
 
@@ -338,6 +349,20 @@ __global__ void finalGather(int nPaths, glm::vec3* image, PathSegment* iteration
     }
 }
 
+__global__ void generateActiveFlags(int num_paths, PathSegment* pathSegments, int* active_flags) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < num_paths) {
+        active_flags[idx] = (pathSegments[idx].remainingBounces > 0) ? 1 : 0;
+    }
+}
+
+__global__ void compactPaths(int num_paths, PathSegment* paths_in, PathSegment* paths_out, int* indices) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < num_paths && indices[idx] >= 0) {
+        paths_out[indices[idx]] = paths_in[idx];
+    }
+}
+
 /**
  * Wrapper for the __global__ call that sets up the kernel calls and does a ton
  * of memory management
@@ -435,8 +460,28 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_paths,
             dev_materials
         );
-        // iterationComplete = true; // TODO: should be based off stream compaction results.
-        iterationComplete = (depth >= traceDepth);
+
+        generateActiveFlags<<<numblocksPathSegmentTracing, blockSize1d>>>(
+            num_paths,
+            dev_paths,
+            dev_active_flags
+        );
+        checkCUDAError("generate active flags");
+        num_paths = StreamCompaction::Efficient::compact(num_paths, dev_active_flags_temp, dev_active_flags);
+        checkCUDAError("compact active flags");
+
+        compactPaths<<<numblocksPathSegmentTracing, blockSize1d>>>(
+            num_paths,
+            dev_paths,
+            dev_paths_temp,
+            dev_active_flags
+        );
+        checkCUDAError("compact paths");
+
+        thrust::swap(dev_paths, dev_paths_temp);
+        if (num_paths == 0 || depth >= traceDepth) {
+            iterationComplete = true;
+        }
 
         if (guiData != NULL)
         {

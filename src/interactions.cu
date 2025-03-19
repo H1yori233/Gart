@@ -56,22 +56,20 @@ __host__ __device__ void scatterRay(
         return;
     }
     
-    // if(m.hasReflective > 0.f) {
-    //     auto wi = pathSegment.ray.direction;
-    //     auto wo = glm::reflect(wi, normal);
-    //     pathSegment.ray.origin = intersect;
-    //     pathSegment.ray.direction = wo;
-    //     pathSegment.color *= m.specular.color;
-    // } else {
-    //     auto wo = calculateRandomDirectionInHemisphere(normal, rng);
-    //     pathSegment.ray.origin = intersect;
-    //     pathSegment.ray.direction = wo;
-    //     pathSegment.color *= m.color;
-    // }
-    auto wo = calculateRandomDirectionInHemisphere(normal, rng);
-    pathSegment.ray.origin = intersect;
-    pathSegment.ray.direction = wo;
-    pathSegment.color *= m.color;
+    if(m.hasReflective > 0.f) {
+        auto wi = pathSegment.ray.direction;
+        auto wo = glm::reflect(wi, normal);
+        pathSegment.ray.origin = intersect;
+        pathSegment.ray.direction = wo;
+        pathSegment.color *= m.specular.color;
+    } else {
+        auto wo = calculateRandomDirectionInHemisphere(normal, rng);
+        pathSegment.ray.origin = intersect;
+        pathSegment.ray.direction = wo;
+
+        float cosTheta = glm::dot(normal, wo);
+        pathSegment.color *= m.color * cosTheta / PI;
+    }
 
     pathSegment.remainingBounces--;
 }
