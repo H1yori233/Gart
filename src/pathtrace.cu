@@ -6,6 +6,7 @@
 #include <thrust/execution_policy.h>
 #include <thrust/random.h>
 #include <thrust/remove.h>
+#include <thrust/device_ptr.h>
 #include <thrust/partition.h>
 
 #include "sceneStructs.h"
@@ -20,6 +21,7 @@
 #include "../stream_compaction/thrust.h"
 
 #define ERRORCHECK 1
+#define MATERIALS_SORT 1
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
@@ -86,9 +88,6 @@ static PathSegment* dev_paths = NULL;
 static ShadeableIntersection* dev_intersections = NULL;
 // TODO: static variables for device memory, any extra info you need, etc
 // ...
-static PathSegment* dev_paths_temp = NULL;
-static int* dev_active_flags = NULL;
-static int* dev_active_flags_temp = NULL;
 
 void InitDataContainer(GuiDataContainer* imGuiData)
 {
@@ -117,9 +116,6 @@ void pathtraceInit(Scene* scene)
     cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
 
     // TODO: initialize any extra device memeory you need
-    cudaMalloc(&dev_paths_temp, pixelcount * sizeof(PathSegment));
-    cudaMalloc(&dev_active_flags, pixelcount * sizeof(int));
-    cudaMalloc(&dev_active_flags_temp, pixelcount * sizeof(int));
 
     checkCUDAError("pathtraceInit");
 }
@@ -132,9 +128,7 @@ void pathtraceFree()
     cudaFree(dev_materials);
     cudaFree(dev_intersections);
     // TODO: clean up any extra device memory you created
-    cudaFree(dev_paths_temp);
-    cudaFree(dev_active_flags);
-    cudaFree(dev_active_flags_temp);
+    
     checkCUDAError("pathtraceFree");
 }
 
@@ -159,9 +153,14 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
         segment.color = glm::vec3(1.0f, 1.0f, 1.0f);
 
         // TODO: implement antialiasing by jittering the ray
+        thrust::default_random_engine rng = makeSeededRandomEngine(iter, index, 0);
+        thrust::uniform_real_distribution<float> uPixel(-0.5, 0.5);
+        float jitter_x = uPixel(rng);
+        float jitter_y = uPixel(rng);
+
         segment.ray.direction = glm::normalize(cam.view
-            - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f)
-            - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f)
+            - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f + jitter_x)
+            - cam.up    * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f + jitter_y)
         );
 
         segment.pixelIndex = index;
@@ -366,12 +365,17 @@ __global__ void compactPaths(int num_paths, PathSegment* paths_in, PathSegment* 
     }
 }
 
-struct pathExists{
+struct pathExists {
     __host__ __device__ bool operator() (const PathSegment& pathSegment){
         return pathSegment.remainingBounces > 0;
     }
 };
 
+struct compareMaterial {
+    __host__ __device__ bool operator()(const ShadeableIntersection& a, const ShadeableIntersection& b) {
+        return a.materialId < b.materialId;
+    }
+};
 
 /**
  * Wrapper for the __global__ call that sets up the kernel calls and does a ton
@@ -461,6 +465,12 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         // materials you have in the scenefile.
         // TODO: compare between directly shading the path segments and shading
         // path segments that have been reshuffled to be contiguous in memory.
+        
+#if MATERIALS_SORT
+        thrust::device_ptr<ShadeableIntersection> p1(dev_intersections);
+        thrust::device_ptr<PathSegment> p2(dev_paths);
+        thrust::sort_by_key(thrust::device, p1, p1 + num_paths, p2, compareMaterial());
+#endif
 
         // shadeFakeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
         shadeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
