@@ -12,6 +12,12 @@ __host__ __device__ glm::vec3 calculateRandomDirectionInHemisphere(
     glm::vec3 normal, 
     thrust::default_random_engine& rng);
 
+__host__ __device__ float fresnelDielectric(float cos_theta_i, 
+    float eta_i, float eta_t);
+
+__host__ __device__ bool calculateRefractDirection(const glm::vec3 &v_, 
+    const glm::vec3 &n, float eta, glm::vec3 &refracted);
+    
 /**
  * Scatter a ray with some probabilities according to the material properties.
  * For example, a diffuse surface scatters in a cosine-weighted hemisphere.
