@@ -14,11 +14,13 @@ GART
 **GART (GPU-Accelerated Ray Tracer)** is a cuda path tracer implemented for the UPenn CIS 565 course.
 
 ## TODO List
-- [ ] Dielectric Material
-- [ ] Depth of Field
-- [ ] Mesh Loading (`glTF` or `obj`)
+- [X] Dielectric Material
+- [X] Depth of Field
+- [X] Mesh Loading (`glTF`)
+- [ ] Hierarchy construction and traversal (`BVH`)
 - [ ] Russian roulette path termination
 - [ ] Next Event Estimation
+- [ ] Environment Map Emitter (with importance sampling)
 - [ ] Multiple Importance Estimation
 - [ ] Better random number sequences
 - [ ] ReSTIR-DI

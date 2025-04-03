@@ -8,7 +8,7 @@
 #define TINYGLTF_IMPLEMENTATION
 #define TINYGLTF_NO_STB_IMAGE_IMPLEMENTATION
 #define TINYGLTF_NO_STB_IMAGE_WRITE_IMPLEMENTATION
-#include "tiny_gltf.h"
+#include "gltf/tiny_gltf.h"
 #include "scene.h"
 
 using json = nlohmann::json;
@@ -147,6 +147,24 @@ void Scene::loadFromJSON(const std::string &jsonName)
     camera.position = glm::vec3(pos[0], pos[1], pos[2]);
     camera.lookAt = glm::vec3(lookat[0], lookat[1], lookat[2]);
     camera.up = glm::vec3(up[0], up[1], up[2]);
+
+    if (cameraData.find("LENS_RADIUS") != cameraData.end()) 
+    {
+        camera.lensRadius = cameraData["LENS_RADIUS"];
+    } 
+    else 
+    {
+        camera.lensRadius = 0.f;
+    }
+
+    if (cameraData.find("FOCAL_DISTANCE") != cameraData.end()) 
+    {
+        camera.focalDistance = cameraData["FOCAL_DISTANCE"];
+    } 
+    else 
+    {
+        camera.focalDistance = 0.f;
+    }
 
     // calculate fov based on resolution
     float yscaled = tan(fovy * (PI / 180));

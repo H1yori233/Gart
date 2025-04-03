@@ -40,22 +40,10 @@ __host__ __device__ glm::vec3 calculateRandomDirectionInHemisphere(
            sin(around) * over * perpendicularDirection2;
 }
 
+// Heavily Ref: https://github.com/cs87-dartmouth/darts-2024/blob/main/src/materials/material.cpp
 __host__ __device__ float fresnelDielectric(float cos_theta_i, 
     float eta_i, float eta_t)
 {
-    if (eta_t == eta_i)
-        return 0.f;
-
-    // Swap the indices of refraction if the interaction starts at the inside of the object
-    bool entering = cos_theta_i > 0.0f;
-    if (!entering)
-    {
-        float temp = eta_t;
-        eta_t = eta_i;
-        eta_i = temp;
-        cos_theta_i = -cos_theta_i;
-    }
-
     // Using Sahl-Snell's law, calculate the squared sine of the angle between the normal and the transmitted ray
     float eta          = eta_i / eta_t;
     float sin_theta_t2 = eta * eta * (1 - cos_theta_i * cos_theta_i);
@@ -66,8 +54,10 @@ __host__ __device__ float fresnelDielectric(float cos_theta_i,
 
     float cos_theta_t = sqrtf(1.0f - sin_theta_t2);
 
-    float Rs = (eta_i * cos_theta_i - eta_t * cos_theta_t) / (eta_i * cos_theta_i + eta_t * cos_theta_t);
-    float Rp = (eta_t * cos_theta_i - eta_i * cos_theta_t) / (eta_t * cos_theta_i + eta_i * cos_theta_t);
+    float Rs = (eta_i * cos_theta_i - eta_t * cos_theta_t) / 
+               (eta_i * cos_theta_i + eta_t * cos_theta_t);
+    float Rp = (eta_t * cos_theta_i - eta_i * cos_theta_t) / 
+               (eta_t * cos_theta_i + eta_i * cos_theta_t);
 
     return 0.5f * (Rs * Rs + Rp * Rp);
 }
@@ -99,16 +89,24 @@ __host__ __device__ void scatterRay(
         auto wi = pathSegment.ray.direction;
         float cos_theta_i = -glm::dot(wi, normal);
         float sin_theta_i = sqrtf(1 - cos_theta_i * cos_theta_i);
-        float ior = m.indexOfRefraction;
+
+        float ior, refl;
         if (cos_theta_i > 0)
         {
             ior = 1 / m.indexOfRefraction;
+            refl = fresnelDielectric(cos_theta_i, 1.f, m.indexOfRefraction);
+        }
+        else
+        {
+            ior = m.indexOfRefraction;
+            refl = fresnelDielectric(cos_theta_i, m.indexOfRefraction, 1.f);
         }
 
-        float r0 = (1 - ior) / (1 + ior);
-        r0 = r0 * r0;
-        float refl = r0 + (1 - r0) * std::pow((1 - cos_theta_i), 5);
-
+        // Schlick's approximation
+        // float r0 = (1 - ior) / (1 + ior);
+        // r0 = r0 * r0;
+        // float refl = r0 + (1 - r0) * std::pow((1 - cos_theta_i), 5);
+        
         auto wo = wi;
         if ((ior * sin_theta_i > 1) || (u01(rng) < refl)) 
         {
@@ -127,11 +125,22 @@ __host__ __device__ void scatterRay(
     }
     else
     {
-        auto wo = calculateRandomDirectionInHemisphere(normal, rng);
-        wo = glm::normalize(wo);
+        // auto wo = calculateRandomDirectionInHemisphere(normal, rng);
+        // wo = glm::normalize(wo); 
+        auto onb    = ONB(normal);
+
+        auto phi    = u01(rng) * PI * 2;
+        auto r2     = u01(rng);
+        auto r      = sqrtf(r2);
+
+        auto lo     = glm::vec3(glm::cos(phi) * r, glm::sin(phi) * r, 
+            sqrtf(max(0.f, 1.0f - r2)));
+        auto wo     = glm::normalize(onb.toWorld(lo));
 
         pathSegment.ray.origin = intersect + EPSILON * wo;
         pathSegment.ray.direction = wo;
+
+        // * pdf and then / pdf, so ignore it
         pathSegment.color *= m.color;
     }
 

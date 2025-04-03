@@ -5,7 +5,7 @@
         {
             "TYPE":"Emitting",
             "RGB":[20.0, 20.0, 20.0],
-            "EMITTANCE":1.0
+            "EMITTANCE":1.5
         },
         "diffuse_white":
         {
@@ -34,12 +34,14 @@
     {
         "RES":[800,800],
         "FOVY":45.0,
-        "ITERATIONS":256,
-        "DEPTH":8,
+        "ITERATIONS":5000,
+        "DEPTH":16,
         "FILE":"cornell",
         "EYE":[0.0, 1.75, 6.0],
         "LOOKAT":[0.0, 1.0, 0.0],
-        "UP":[0.0, 1.0, 0.0]
+        "UP":[0.0, 1.0, 0.0],
+        "LENS_RADIUS": 0.05,
+        "FOCAL_DISTANCE": 10.0
     },
     "Objects":
     [
@@ -55,28 +57,28 @@
             "MATERIAL":"glass",
             "TRANS":[0.5, 1.0, 0.0],
             "ROTAT":[0.0, 0.0, 0.0],
-            "SCALE":[1.0, 1.0, 1.0]
+            "SCALE":[2.0, 2.0, 2.0]
         },
         {
             "TYPE":"sphere",
             "MATERIAL":"diffuse_green",
             "TRANS":[2.2, 1.0, -4.0],
             "ROTAT":[0.0, 0.0, 0.0],
-            "SCALE":[1.0, 1.0, 1.0]
+            "SCALE":[2.0, 2.0, 2.0]
         },
         {
             "TYPE":"sphere",
             "MATERIAL":"metal_chrome",
             "TRANS":[-2.5, 1.5, -3.5],
             "ROTAT":[0.0, 0.0, 0.0],
-            "SCALE":[1.5, 1.5, 1.5]
+            "SCALE":[3.0, 3.0, 3.0]
         },
         {
             "TYPE":"cube",
             "MATERIAL":"light",
             "TRANS":[4.0, 3.5, 0.0],
             "ROTAT":[-90.0, 65.0, 50.0],
-            "SCALE":[0.5, 0.5, 0.01]
+            "SCALE":[1, 1, 0.01]
         }
     ]
 }

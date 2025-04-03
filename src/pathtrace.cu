@@ -163,6 +163,22 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
             - cam.up    * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f + jitter_y)
         );
 
+        // Depth Of Field
+        if (cam.lensRadius > 0) 
+        {
+            thrust::uniform_real_distribution<float> u01(0, 1);
+            auto phi    = 2.f * PI * u01(rng);
+            auto r      = sqrtf(u01(rng));
+            glm::vec2 sample_unit_circle = 
+                glm::vec2(glm::cos(phi) * r, glm::sin(phi) * r);
+
+            glm::vec2 sample = cam.lensRadius * sample_unit_circle;
+            glm::vec3 pFocus  = segment.ray.direction * cam.focalDistance + cam.position;
+
+            segment.ray.origin = cam.position + sample.x * cam.right + sample.y * cam.up;
+            segment.ray.direction = glm::normalize(pFocus - segment.ray.origin);
+        }
+
         segment.pixelIndex = index;
         segment.remainingBounces = traceDepth;
     }

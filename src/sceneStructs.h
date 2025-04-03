@@ -64,6 +64,7 @@ struct Camera
     glm::vec3 right;
     glm::vec2 fov;
     glm::vec2 pixelLength;
+    float lensRadius, focalDistance;
 };
 
 struct RenderState
@@ -92,3 +93,40 @@ struct ShadeableIntersection
   glm::vec3 surfaceNormal;
   int materialId;
 };
+
+// Heavily Ref: https://cs87-dartmouth.github.io/Fall2024/assignment4.html
+struct ONB
+{
+    // Three ortho-normal vectors that form the basis for a local coordinate system
+    glm::vec3 s; // The tangent vector
+    glm::vec3 t; // The bi-tangent vector
+    glm::vec3 n; // The normal vector
+
+    __host__ __device__ ONB();
+
+    /*
+        Build an ONB from a single vector.
+
+        Sets ONB::n to a normalized version of \p n_ and computes ONB::s and ONB::t automatically to form a right-handed
+        orthonormal basis
+    */
+    __host__ __device__ ONB(const glm::vec3 n_);
+
+    /*
+        Initialize an ONB from a surface tangent \p s and normal \p n.
+
+        \param [in] s_   Surface tangent
+        \param [in] n_   Surface normal
+    */
+    __host__ __device__ ONB(const glm::vec3 &s_, const glm::vec3 &n_);
+
+    // Initialize an ONB from three orthonormal vectors
+    __host__ __device__ ONB(const glm::vec3 &s, const glm::vec3 &t, const glm::vec3 &n);
+
+    // Convert from world coordinates to local coordinates
+    __host__ __device__ glm::vec3 toLocal(const glm::vec3 &v) const;
+
+    // Convert from local coordinates to world coordinates
+    __host__ __device__ glm::vec3 toWorld(const glm::vec3 &v) const;
+};
+
