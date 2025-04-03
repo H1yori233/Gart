@@ -72,21 +72,6 @@ __host__ __device__ float fresnelDielectric(float cos_theta_i,
     return 0.5f * (Rs * Rs + Rp * Rp);
 }
 
-__host__ __device__ bool calculateRefractDirection(const glm::vec3 &v_, 
-    const glm::vec3 &n, float eta, glm::vec3 &refracted)
-{
-    glm::vec3 v     = normalize(v_);
-    float dt        = dot(v, n);
-    float discrim   = 1.0f - eta * eta * (1.0f - dt * dt);
-    if (discrim > 0)
-    {
-        refracted = eta * (v - n * dt) - n * sqrtf(discrim);
-        return true;
-    }
-    else
-        return false;
-}
-
 __host__ __device__ void scatterRay(
     PathSegment &pathSegment,
     glm::vec3 intersect,
@@ -97,58 +82,56 @@ __host__ __device__ void scatterRay(
     // TODO: implement this.
     // A basic implementation of pure-diffuse shading will just call the
     // calculateRandomDirectionInHemisphere defined above.
+    thrust::uniform_real_distribution<float> u01(0, 1);
+
     if (m.hasReflective > 0.f)
     {
         auto wi = pathSegment.ray.direction;
         auto wo = glm::reflect(wi, normal);
+        wo = glm::normalize(wo);
 
-        pathSegment.ray.origin = intersect + EPSILON * normal;
-        pathSegment.ray.direction = glm::normalize(wo);
+        pathSegment.ray.origin = intersect + EPSILON * wo;
+        pathSegment.ray.direction = wo;
         pathSegment.color *= m.specular.color;
     }
     else if (m.hasRefractive > 0.f)
     {
         auto wi = pathSegment.ray.direction;
-        auto n  = normal;
-
-        auto cos_theta_i = glm::dot(-wi, n);
-        auto eta_i = 1.f;  // air
-        auto eta_t = m.indexOfRefraction;
-
-        bool entering = cos_theta_i > 0.0f;
-        if (!entering)
+        float cos_theta_i = -glm::dot(wi, normal);
+        float sin_theta_i = sqrtf(1 - cos_theta_i * cos_theta_i);
+        float ior = m.indexOfRefraction;
+        if (cos_theta_i > 0)
         {
-            float temp = eta_t;
-            eta_t = eta_i;
-            eta_i = temp;
-            n = -n;
-            cos_theta_i = -cos_theta_i;
+            ior = 1 / m.indexOfRefraction;
         }
 
-        glm::vec3 refracted_dir;
-        float refl = fresnelDielectric(cos_theta_i, eta_i, eta_t);
-        thrust::uniform_real_distribution<float> u01(0, 1);
+        float r0 = (1 - ior) / (1 + ior);
+        r0 = r0 * r0;
+        float refl = r0 + (1 - r0) * std::pow((1 - cos_theta_i), 5);
+
+        auto wo = wi;
+        if ((ior * sin_theta_i > 1) || (u01(rng) < refl)) 
+        {
+            wo = glm::reflect(wi, normal);
+        }
+        else 
+        {
+            wo = glm::refract(wi, normal, ior);
+        }
+        wo = glm::normalize(wo);
         
-        if (u01(rng) > refl && calculateRefractDirection(wi, n, eta_i / eta_t, refracted_dir)) 
-        {
-            pathSegment.ray.origin = intersect + EPSILON * n;
-            pathSegment.ray.direction = glm::normalize(refracted_dir);
-        }
-        else
-        {
-            auto wo = glm::reflect(wi, n);
-
-            pathSegment.ray.origin = intersect + EPSILON * n;
-            pathSegment.ray.direction = glm::normalize(wo);
-        }
-        pathSegment.color *= m.specular.color;
+        // Very Strange, EPSILON = 0.00001f wont work
+        // only 0.0001f works.
+        pathSegment.ray.origin = intersect + 0.0001f * wo;
+        pathSegment.ray.direction = wo;
     }
     else
     {
         auto wo = calculateRandomDirectionInHemisphere(normal, rng);
-        
-        pathSegment.ray.origin = intersect + EPSILON * normal;
-        pathSegment.ray.direction = glm::normalize(wo);
+        wo = glm::normalize(wo);
+
+        pathSegment.ray.origin = intersect + EPSILON * wo;
+        pathSegment.ray.direction = wo;
         pathSegment.color *= m.color;
     }
 

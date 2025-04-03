@@ -168,6 +168,8 @@ void Scene::loadFromJSON(const std::string &jsonName)
 
 void Scene::loadFromGLTF(const std::string &gltfName)
 {
+    std::cout << "Begin GLTF Loading Mesh from: " << gltfName << std::endl;
+
     tinygltf::Model model;
     tinygltf::TinyGLTF loader;
     std::string err;
@@ -344,12 +346,17 @@ void Scene::loadFromGLTF(const std::string &gltfName)
             }
         }
     }
+
+    std::cout << "Load GLTF Mesh End: " << gltfName << std::endl;
 }
 
 void Scene::loadMeshFromGLTF(const std::string &gltfPath, const Geom &baseGeom)
 {
     size_t offset = geoms.size();
     loadFromGLTF(gltfPath);
+
+    std::cout << "Begin Set GLTF Geoms from: " << gltfPath << std::endl;
+
     for (size_t i = offset; i < geoms.size(); i++)
     {
         geoms[i].materialid = baseGeom.materialid;
@@ -377,4 +384,7 @@ void Scene::loadMeshFromGLTF(const std::string &gltfPath, const Geom &baseGeom)
         geoms[i].inverseTransform = baseGeom.inverseTransform;
         geoms[i].invTranspose = baseGeom.invTranspose;
     }
+
+    std::cout << "Set GLTF Geoms End: " << gltfPath << std::endl;
+    std::cout << "Number of Geoms: " << geoms.size() << std::endl;
 }

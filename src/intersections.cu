@@ -111,3 +111,67 @@ __host__ __device__ float sphereIntersectionTest(
 
     return glm::length(r.origin - intersectionPoint);
 }
+
+__host__ __device__ float triangleIntersectionTest(
+    Geom triangle,
+    Ray r,
+    glm::vec3& intersectionPoint,
+    glm::vec3& normal,
+    bool& outside)
+{
+    auto tri = triangle.triangle;
+    auto S  = r.origin  - tri.v0;
+    auto E1 = tri.v1    - tri.v0;
+    auto E2 = tri.v2    - tri.v0;
+
+    //   t  = det([S, E1, E2])  / det(-d, E1, E2)
+    //      = (S x E1) * E2     / E1 * (d x E2) 
+    auto S1     = glm::cross(r.direction, E2);
+    auto S2     = glm::cross(S, E1);
+    float S1E1  = glm::dot(S1, E1);
+    if (glm::abs(S1E1) < 1e-6)
+    {
+        return -1.0f;
+    }
+
+    // First, check for intersection and fill in the hit distance t
+    float t     = glm::dot(S2, E2)  / S1E1;
+    float b1    = glm::dot(S1, S)   / S1E1;
+    float b2    = glm::dot(S2, r.direction) / S1E1;
+
+    // You should also compute the u/v (i.e. the beta/gamma barycentric coordinates) of the hit point
+    // (Moller-Trumbore gives you this for free)
+    float b0    = 1 - b1 - b2;
+    auto  uv    = b0 * tri.t0 + b1 * tri.t1 + b2 * tri.t2;
+
+    // check if the distance t is valid and the barycentric coordinates are within the triangle
+    if (t < 0.0f || b0 < 0.f || b1 < 0.f || b2 < 0.f) 
+    {
+        return -1.0f;
+    }
+
+    intersectionPoint = r.origin + t * r.direction;
+
+    // Fill in the gn with the geometric normal of the triangle
+    normal = glm::normalize(glm::cross(E1, E2));
+    outside = (glm::dot(r.direction, normal) < 0.0f);
+    // if (!outside) 
+    // {
+    //     normal = -normal;
+    // }
+    
+    if (tri.n0 != glm::vec3(0.0f) || 
+        tri.n1 != glm::vec3(0.0f) || 
+        tri.n2 != glm::vec3(0.0f)) 
+    {
+        glm::vec3 shadingNormal = glm::normalize(b0 * tri.n0 + 
+            b1 * tri.n1 + b2 * tri.n2);
+        // if (glm::dot(normal, shadingNormal) < 0.0f) 
+        // {
+        //     shadingNormal = -shadingNormal;
+        // }
+        normal = shadingNormal;
+    }
+    
+    return t;
+}
