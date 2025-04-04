@@ -88,6 +88,7 @@ static PathSegment* dev_paths = NULL;
 static ShadeableIntersection* dev_intersections = NULL;
 // TODO: static variables for device memory, any extra info you need, etc
 // ...
+static Geom* dev_emitters = NULL;
 
 void InitDataContainer(GuiDataContainer* imGuiData)
 {
@@ -116,6 +117,8 @@ void pathtraceInit(Scene* scene)
     cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
 
     // TODO: initialize any extra device memeory you need
+    cudaMalloc(&dev_emitters, scene->emitters.size() * sizeof(Geom));
+    cudaMemcpy(dev_emitters, scene->emitters.data(), scene->emitters.size() * sizeof(Geom), cudaMemcpyHostToDevice);
 
     checkCUDAError("pathtraceInit");
 }
@@ -128,7 +131,7 @@ void pathtraceFree()
     cudaFree(dev_materials);
     cudaFree(dev_intersections);
     // TODO: clean up any extra device memory you created
-    
+    cudaFree(dev_emitters);
     checkCUDAError("pathtraceFree");
 }
 
@@ -359,6 +362,89 @@ __global__ void shadeMaterial(
     }
 }
 
+// Sample Direct Light
+__global__ void shadeMaterialNEE(
+    int iter,
+    int num_paths,
+    ShadeableIntersection* shadeableIntersections,
+    PathSegment* pathSegments,
+    Material* materials,
+    Geom* emitters, 
+    int emitters_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < num_paths)
+    {
+        ShadeableIntersection intersection = shadeableIntersections[idx];
+        if (intersection.t > 0.0f) // if the intersection exists...
+        {
+            // Set up the RNG
+            thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, 0);
+            thrust::uniform_real_distribution<float> u01(0, 1);
+
+            Material material = materials[intersection.materialId];
+            glm::vec3 materialColor = material.color;
+
+            // If the material indicates that the object was a light, "light" the ray
+            if (material.emittance > 0.0f) {
+                pathSegments[idx].color *= (materialColor * material.emittance);
+                pathSegments[idx].remainingBounces = -1;
+            }
+            else {
+                glm::vec3 intersect = pathSegments[idx].ray.origin + 
+                    pathSegments[idx].ray.direction * intersection.t;
+                
+                // ----------------------------------------------- //
+
+                // Sample Light
+                float sx = u01(rng) * emitters_size;
+                int index = glm::clamp((int)sx, 0, emitters_size - 1);
+                // float   rv1 = sx - index;
+
+                // Get Color and PDF
+                Geom child = emitters[index];
+                float prob = 1.f / emitters_size;
+                glm::vec3 L_dir;
+                float pdf = 0.f;
+
+                if (child.type == CUBE)
+                {
+                    L_dir = boxSample(child, pathSegments[idx].ray, material, rng, pdf);
+                }
+                else if (child.type == SPHERE)
+                {
+                    L_dir = sphereSample(child, pathSegments[idx].ray, material, rng, pdf);    
+                }
+                else if (child.type == TRIANGLE)
+                {
+                    L_dir = triangleSample(child, pathSegments[idx].ray, material, rng, pdf);    
+                }
+                L_dir *= pdf;
+                pdf *= prob;
+
+                // ----------------------------------------------- //
+
+                scatterRay(
+                    pathSegments[idx],
+                    intersect,
+                    intersection.surfaceNormal,
+                    material,
+                    rng
+                );
+            }
+            // If there was no intersection, color the ray black.
+            // Lots of renderers use 4 channel color, RGBA, where A = alpha, often
+            // used for opacity, in which case they can indicate "no opacity".
+            // This can be useful for post-processing and image compositing.
+        }
+        else {
+            pathSegments[idx].color = glm::vec3(0.0f);
+            pathSegments[idx].remainingBounces = -1;
+        }
+    }
+}
+
+
 // Add the current iteration's output to the overall image
 __global__ void finalGather(int nPaths, glm::vec3* image, PathSegment* iterationPaths)
 {
@@ -493,12 +579,15 @@ void pathtrace(uchar4* pbo, int frame, int iter)
 #endif
 
         // shadeFakeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
-        shadeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
+        // shadeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
+        shadeMaterialNEE<<<numblocksPathSegmentTracing, blockSize1d>>>(
             iter,
             num_paths,
             dev_intersections,
             dev_paths,
-            dev_materials
+            dev_materials,
+            dev_emitters, 
+            hst_scene->emitters.size()
         );
 
         dev_path_end = thrust::partition(thrust::device, dev_paths, dev_path_end, pathExists());

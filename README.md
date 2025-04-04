@@ -17,6 +17,8 @@ GART
 - [X] Dielectric Material
 - [X] Depth of Field
 - [X] Mesh Loading (`glTF`)
+- [ ] Texture Mapping
+- [ ] Bump Mapping
 - [ ] Hierarchy construction and traversal (`BVH`)
 - [ ] Russian roulette path termination
 - [ ] Next Event Estimation

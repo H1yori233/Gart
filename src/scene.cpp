@@ -131,6 +131,10 @@ void Scene::loadFromJSON(const std::string &jsonName)
         newGeom.invTranspose = glm::inverseTranspose(newGeom.transform);
 
         geoms.push_back(newGeom);
+        if (materials[newGeom.materialid].emittance > 0.0f) 
+        {
+            emitters.push_back(newGeom);
+        }
     }
     const auto &cameraData = data["Camera"];
     Camera &camera = state.camera;
@@ -361,6 +365,10 @@ void Scene::loadFromGLTF(const std::string &gltfName)
                 geom.invTranspose = glm::mat4(1.0f);
 
                 geoms.push_back(geom);
+                if (materials[geom.materialid].emittance > 0.0f) 
+                {
+                    emitters.push_back(geom);
+                }
             }
         }
     }

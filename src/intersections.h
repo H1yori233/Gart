@@ -5,6 +5,7 @@
 
 #include "sceneStructs.h"
 #include "utilities.h"
+#include <thrust/random.h>
 
 /**
  * Handy-dandy hash function that provides seeds for random number generation.
@@ -55,6 +56,20 @@ __host__ __device__ float boxIntersectionTest(
     glm::vec3& normal,
     bool& outside);
 
+__host__ __device__ glm::vec3 boxSample(
+    Geom box,
+    Ray& r,
+    Material material,
+    thrust::default_random_engine& rng,
+    float& pdf);
+
+__host__ __device__ float boxPDF(
+    Geom box,
+    Ray r,
+    glm::vec3& intersectionPoint,
+    glm::vec3& normal,
+    bool& outside);
+
 // CHECKITOUT
 /**
  * Test intersection between a ray and a transformed sphere. Untransformed,
@@ -72,6 +87,21 @@ __host__ __device__ float sphereIntersectionTest(
     glm::vec3& normal,
     bool& outside);
 
+__host__ __device__ glm::vec3 sphereSample(
+    Geom sphere,
+    Ray& r,
+    Material material,
+    thrust::default_random_engine& rng,
+    float& pdf);
+
+__host__ __device__ float spherePDF(
+    Geom sphere,
+    Ray r,
+    glm::vec3& intersectionPoint,
+    glm::vec3& normal,
+    bool& outside);
+
+
 /**
  * Test intersection between a ray and a transformed triangle.
  *
@@ -81,6 +111,20 @@ __host__ __device__ float sphereIntersectionTest(
  * @return                   Ray parameter `t` value. -1 if no intersection.
  */
 __host__ __device__ float triangleIntersectionTest(
+    Geom triangle,
+    Ray r,
+    glm::vec3& intersectionPoint,
+    glm::vec3& normal,
+    bool& outside);
+
+__host__ __device__ glm::vec3 triangleSample(
+    Geom triangle,
+    Ray& r,
+    Material material,
+    thrust::default_random_engine& rng,
+    float& pdf);
+
+__host__ __device__ float trianglePDF(
     Geom triangle,
     Ray r,
     glm::vec3& intersectionPoint,

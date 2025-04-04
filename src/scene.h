@@ -23,6 +23,7 @@ public:
     ~Scene();
 
     std::vector<Geom> geoms;
+    std::vector<Geom> emitters;
     std::vector<Material> materials;
     RenderState state;
 };
