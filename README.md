@@ -10,10 +10,11 @@ GART
 * Tested on: Windows 11, AMD Ryzen 7 5800H @ 3.20GHz 16GB, RTX 3050 Laptop 4GB
 
 
-## Intro
+### Intro
 **GART (GPU-Accelerated Ray Tracer)** is a cuda path tracer implemented for the UPenn CIS 565 course.
 
-## TODO List
+
+### TODO List
 - [X] Dielectric Material
 - [X] Depth of Field
 - [X] Mesh Loading (`glTF`)
@@ -27,13 +28,7 @@ GART
 - [ ] Better random number sequences
 - [ ] ReSTIR-DI
 
-## Functions
-
-
-### 
-
-
-###
+### Functions
 
 
 ###

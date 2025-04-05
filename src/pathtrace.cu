@@ -579,16 +579,22 @@ void pathtrace(uchar4* pbo, int frame, int iter)
 #endif
 
         // shadeFakeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
-        // shadeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
-        shadeMaterialNEE<<<numblocksPathSegmentTracing, blockSize1d>>>(
+        shadeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
             iter,
             num_paths,
             dev_intersections,
             dev_paths,
-            dev_materials,
-            dev_emitters, 
-            hst_scene->emitters.size()
+            dev_materials
         );
+        // shadeMaterialNEE<<<numblocksPathSegmentTracing, blockSize1d>>>(
+        //     iter,
+        //     num_paths,
+        //     dev_intersections,
+        //     dev_paths,
+        //     dev_materials,
+        //     dev_emitters, 
+        //     hst_scene->emitters.size()
+        // );
 
         dev_path_end = thrust::partition(thrust::device, dev_paths, dev_path_end, pathExists());
         num_paths = dev_path_end - dev_paths;

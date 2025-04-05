@@ -94,39 +94,37 @@ struct ShadeableIntersection
   int materialId;
 };
 
-// Heavily Ref: https://cs87-dartmouth.github.io/Fall2024/assignment4.html
+
 struct ONB
 {
-    // Three ortho-normal vectors that form the basis for a local coordinate system
-    glm::vec3 s; // The tangent vector
-    glm::vec3 t; // The bi-tangent vector
-    glm::vec3 n; // The normal vector
+    // Three orthonormal basis vectors stored in an array
+    glm::vec3 axis[3];
 
-    __host__ __device__ ONB();
+    __host__ __device__ inline ONB() {}
+    __host__ __device__ inline ONB(const glm::vec3& normal) 
+    {
+        axis[2] = glm::normalize(normal);
+        glm::vec3 a = (std::fabs(axis[2].x) > 0.9f) ? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0);
+        axis[1] = glm::normalize(glm::cross(axis[2], a));
+        axis[0] = glm::cross(axis[2], axis[1]);
+    }
 
-    /*
-        Build an ONB from a single vector.
+    __host__ __device__ inline const glm::vec3& tangent() const { return axis[0]; }
+    __host__ __device__ inline const glm::vec3& bitangent() const { return axis[1]; }
+    __host__ __device__ inline const glm::vec3& normal() const { return axis[2]; }
 
-        Sets ONB::n to a normalized version of \p n_ and computes ONB::s and ONB::t automatically to form a right-handed
-        orthonormal basis
-    */
-    __host__ __device__ ONB(const glm::vec3 n_);
+    __host__ __device__ inline glm::vec3 localToWorld(const glm::vec3& a) const 
+    {
+        return a.x * axis[0] + a.y * axis[1] + a.z * axis[2];
+    }
 
-    /*
-        Initialize an ONB from a surface tangent \p s and normal \p n.
-
-        \param [in] s_   Surface tangent
-        \param [in] n_   Surface normal
-    */
-    __host__ __device__ ONB(const glm::vec3 &s_, const glm::vec3 &n_);
-
-    // Initialize an ONB from three orthonormal vectors
-    __host__ __device__ ONB(const glm::vec3 &s, const glm::vec3 &t, const glm::vec3 &n);
-
-    // Convert from world coordinates to local coordinates
-    __host__ __device__ glm::vec3 toLocal(const glm::vec3 &v) const;
-
-    // Convert from local coordinates to world coordinates
-    __host__ __device__ glm::vec3 toWorld(const glm::vec3 &v) const;
+    __host__ __device__ inline glm::vec3 worldToLocal(const glm::vec3& a) const 
+    {
+        return glm::vec3(
+            glm::dot(a, axis[0]),
+            glm::dot(a, axis[1]),
+            glm::dot(a, axis[2])
+        );
+    }
 };
 

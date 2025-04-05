@@ -1,4 +1,5 @@
 #include "intersections.h"
+#include "random.h"
 
 __host__ __device__ float boxIntersectionTest(
     Geom box,
@@ -63,68 +64,7 @@ __host__ __device__ glm::vec3 boxSample(
     thrust::default_random_engine& rng,
     float& pdf)
 {
-    thrust::uniform_real_distribution<float> u01(0, 1);
-    int face = min(int(u01(rng) * 6), 5);
-
-    float u1 = u01(rng) * 2.0f - 1.0f;
-    float u2 = u01(rng) * 2.0f - 1.0f;
-
-    float size = 0.5f;
-    glm::vec3 localPoint;
-    switch (face) {
-        case 0: // +x
-            localPoint = glm::vec3(size, u1 * size, u2 * size);
-            break;
-        case 1: // -x
-            localPoint = glm::vec3(-size, u1 * size, u2 * size);
-            break;
-        case 2: // +y
-            localPoint = glm::vec3(u1 * size, size, u2 * size);
-            break;
-        case 3: // -y
-            localPoint = glm::vec3(u1 * size, -size, u2 * size);
-            break;
-        case 4: // +z
-            localPoint = glm::vec3(u1 * size, u2 * size, size);
-            break;
-        case 5: // -z
-            localPoint = glm::vec3(u1 * size, u2 * size, -size);
-            break;
-    }
-    
-    glm::vec3 worldPoint = multiplyMV(box.transform, glm::vec4(localPoint, 1.0f));
-    glm::vec3 direction = worldPoint - r.origin;
-    float distanceSquared = glm::dot(direction, direction);
-    float distance = sqrtf(distanceSquared);
-    
-    r.direction = direction / distance;
-    glm::vec3 localNormal;
-    switch (face) {
-        case 0: localNormal = glm::vec3(1, 0, 0); break;
-        case 1: localNormal = glm::vec3(-1, 0, 0); break;
-        case 2: localNormal = glm::vec3(0, 1, 0); break;
-        case 3: localNormal = glm::vec3(0, -1, 0); break;
-        case 4: localNormal = glm::vec3(0, 0, 1); break;
-        case 5: localNormal = glm::vec3(0, 0, -1); break;
-    }
-    glm::vec3 worldNormal = glm::normalize(multiplyMV(box.invTranspose, glm::vec4(localNormal, 0.0f)));
-    
-    float area = 0.0f;
-    glm::vec3 rightVec      = multiplyMV(box.transform, 
-        glm::vec4(1, 0, 0, 0)) - multiplyMV(box.transform, glm::vec4(0, 0, 0, 0));
-    glm::vec3 upVec         = multiplyMV(box.transform, 
-        glm::vec4(0, 1, 0, 0)) - multiplyMV(box.transform, glm::vec4(0, 0, 0, 0));
-    glm::vec3 forwardVec    = multiplyMV(box.transform, 
-        glm::vec4(0, 0, 1, 0)) - multiplyMV(box.transform, glm::vec4(0, 0, 0, 0));
-    float areaXY = glm::length(glm::cross(rightVec, upVec));
-    float areaXZ = glm::length(glm::cross(rightVec, forwardVec));
-    float areaYZ = glm::length(glm::cross(upVec, forwardVec));
-    
-    area = 2.0f * (areaXY + areaXZ + areaYZ);
-    float cosine = glm::abs(glm::dot(worldNormal, r.direction));
-    pdf = distanceSquared / (cosine * area);
-    
-    return material.color * material.emittance / pdf;
+    return glm::vec3(0.f, 0.f, 0.f);
 }
 
 __host__ __device__ float boxPDF(
@@ -135,24 +75,6 @@ __host__ __device__ float boxPDF(
     bool& outside)
 {
     float t = boxIntersectionTest(box, r, intersectionPoint, normal, outside);
-    if (t > 0) 
-    {
-        glm::vec3 rightVec      = multiplyMV(box.transform, 
-            glm::vec4(1, 0, 0, 0)) - multiplyMV(box.transform, glm::vec4(0, 0, 0, 0));
-        glm::vec3 upVec         = multiplyMV(box.transform, 
-            glm::vec4(0, 1, 0, 0)) - multiplyMV(box.transform, glm::vec4(0, 0, 0, 0));
-        glm::vec3 forwardVec    = multiplyMV(box.transform, 
-            glm::vec4(0, 0, 1, 0)) - multiplyMV(box.transform, glm::vec4(0, 0, 0, 0));
-        
-        float areaXY = glm::length(glm::cross(rightVec, upVec));
-        float areaXZ = glm::length(glm::cross(rightVec, forwardVec));
-        float areaYZ = glm::length(glm::cross(upVec, forwardVec));
-        float area = 2.0f * (areaXY + areaXZ + areaYZ);
-
-        float distanceSquared = t * t;
-        float cosine = glm::abs(glm::dot(glm::normalize(r.direction), normal));
-        return distanceSquared / (cosine * area);
-    }
     return 0.0f;
 }
 
@@ -221,9 +143,10 @@ __host__ __device__ glm::vec3 sphereSample(
     thrust::default_random_engine& rng,
     float& pdf)
 {
+    thrust::uniform_real_distribution<float> u01(0, 1);
+
     glm::vec3 center = multiplyMV(sphere.transform, glm::vec4(0, 0, 0, 1.0f));
     glm::vec3 oc = center - r.origin;
-    
     float d = glm::length(oc);
     float radius = 0.5f;
     float transformedRadius = radius * 
@@ -231,18 +154,11 @@ __host__ __device__ glm::vec3 sphereSample(
     
     float c = d * d - transformedRadius * transformedRadius;
     float cos_theta_max = c < 0.f ? -1.f : sqrt(c) / d;
-
-    // sample sphere cap
-    thrust::uniform_real_distribution<float> u01(0, 1);
-    float phi = 2.0f * PI * u01(rng);
-    float t = u01(rng);
-    float cos_theta = cos_theta_max * (1.0f - t) + 1.0f * t;
-    float r_ = sqrtf(glm::max(0.f, 1.f - cos_theta * cos_theta));
-    glm::vec3 lo = glm::vec3(glm::cos(phi) * r_, glm::sin(phi) * r_, cos_theta);
+    glm::vec3 lo = randomSphereCap(cos_theta_max, u01(rng), u01(rng));
 
     ONB onb = ONB(glm::normalize(oc));
-    r.direction = glm::normalize(onb.toWorld(lo));
-    pdf = 1.0f / (2.0f * PI * (1.0f - cos_theta_max));
+    r.direction = glm::normalize(onb.localToWorld(lo));
+    pdf = pdfSphereCap(cos_theta_max);
 
     return material.color * material.emittance / pdf;
 }
@@ -259,7 +175,6 @@ __host__ __device__ float spherePDF(
     {
         glm::vec3 center = multiplyMV(sphere.transform, glm::vec4(0, 0, 0, 1.0f));
         glm::vec3 oc = center - r.origin;
-
         float d = glm::length(oc);
         float radius = 0.5f;
         float transformedRadius = radius * 
@@ -267,7 +182,7 @@ __host__ __device__ float spherePDF(
         
         float c = d * d - transformedRadius * transformedRadius;
         float cos_theta_max = c < 0.f ? -1.f  : sqrt(c) / d;
-        return 1.f / (2.f * PI * (1.f  - cos_theta_max));
+        return pdfSphereCap(cos_theta_max);
     }
     
     return 0.f;
@@ -297,25 +212,17 @@ __host__ __device__ float triangleIntersectionTest(
         return -1.0f;
     }
 
-    // First, check for intersection and fill in the hit distance t
     float t     = glm::dot(S2, E2)  / S1E1;
     float b1    = glm::dot(S1, S)   / S1E1;
     float b2    = glm::dot(S2, r.direction) / S1E1;
-
-    // You should also compute the u/v (i.e. the beta/gamma barycentric coordinates) of the hit point
-    // (Moller-Trumbore gives you this for free)
     float b0    = 1 - b1 - b2;
     auto  uv    = b0 * tri.t0 + b1 * tri.t1 + b2 * tri.t2;
-
-    // check if the distance t is valid and the barycentric coordinates are within the triangle
     if (t < 0.0f || b0 < 0.f || b1 < 0.f || b2 < 0.f) 
     {
         return -1.0f;
     }
 
     intersectionPoint = r.origin + t * r.direction;
-
-    // Fill in the gn with the geometric normal of the triangle
     normal = glm::normalize(glm::cross(E1, E2));
     outside = (glm::dot(r.direction, normal) < 0.0f);
     // if (!outside) 
@@ -346,6 +253,8 @@ __host__ __device__ glm::vec3 triangleSample(
     thrust::default_random_engine& rng,
     float& pdf)
 {
+    thrust::uniform_real_distribution<float> u01(0, 1);
+    
     Triangle tri = triangle.triangle;
     glm::vec3 v0 = tri.v0;
     glm::vec3 v1 = tri.v1;
@@ -354,27 +263,16 @@ __host__ __device__ glm::vec3 triangleSample(
     glm::vec3 E1 = v1 - v0;
     glm::vec3 E2 = v2 - v0;
     glm::vec3 normal = glm::normalize(glm::cross(E1, E2));
+    glm::vec3 samplePoint = randomTriangle(v0, v1, v2, u01(rng), u01(rng));
     
-    // Sample Triangle
-    thrust::uniform_real_distribution<float> u01(0, 1);
-    float b0 = u01(rng);
-    float b1 = u01(rng);
-    if(b0 + b1 > 1.f)
-    {
-        b0 = 1.f - b0;
-        b1 = 1.f - b1;
-    }
-    float b2 = 1 - b0 - b1;
-
-    glm::vec3 samplePoint = b0 * v0 + b1 * v1 + b2 * v2;
     glm::vec3 direction = samplePoint - r.origin;
     float distanceSquared = glm::dot(direction, direction);
     float distance = sqrtf(distanceSquared);
     r.direction = direction / distance;
 
-    float area = 0.5f * glm::length(glm::cross(E1, E2));
+    float pdfArea = pdfTriangle(v0, v1, v2);
     float cosine = glm::abs(glm::dot(normal, r.direction));
-    pdf = distanceSquared / (cosine * area);
+    pdf = distanceSquared / (cosine * (1.0f / pdfArea));
 
     return material.color * material.emittance / pdf;
 }
@@ -393,14 +291,11 @@ __host__ __device__ float trianglePDF(
         glm::vec3 v0 = tri.v0;
         glm::vec3 v1 = tri.v1;
         glm::vec3 v2 = tri.v2;
-        
-        glm::vec3 E1 = v1 - v0;
-        glm::vec3 E2 = v2 - v0;
-        float area = 0.5f * glm::length(glm::cross(E1, E2));
+        float pdfArea = pdfTriangle(v0, v1, v2);
         
         float distanceSquared = t * t;
         float cosine = glm::abs(glm::dot(glm::normalize(r.direction), normal));
-        return distanceSquared / (cosine * area);
+        return distanceSquared / (cosine * (1.0f / pdfArea));
     }
     return 0.0f;
 }

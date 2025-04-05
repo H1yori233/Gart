@@ -57,6 +57,7 @@ set(headers
     src/intersections.h
     src/glslUtility.hpp
     src/pathtrace.h
+    src/random.h
     src/scene.h
     src/sceneStructs.h
     src/preview.h
@@ -71,7 +72,6 @@ set(sources
     src/pathtrace.cu
     src/intersections.cu
     src/interactions.cu
-    src/onb.cu
     src/scene.cpp
     src/preview.cpp
     src/utilities.cpp

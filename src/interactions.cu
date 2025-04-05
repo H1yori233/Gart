@@ -1,4 +1,5 @@
 #include "interactions.h"
+#include "random.h"
 
 __host__ __device__ glm::vec3 calculateRandomDirectionInHemisphere(
     glm::vec3 normal,
@@ -127,15 +128,10 @@ __host__ __device__ void scatterRay(
     {
         // auto wo = calculateRandomDirectionInHemisphere(normal, rng);
         // wo = glm::normalize(wo); 
+        auto lo     = randomHemisphereCosine(u01(rng), u01(rng));
+
         auto onb    = ONB(normal);
-
-        auto phi    = u01(rng) * PI * 2;
-        auto r2     = u01(rng);
-        auto r      = sqrtf(r2);
-
-        auto lo     = glm::vec3(glm::cos(phi) * r, glm::sin(phi) * r, 
-            sqrtf(max(0.f, 1.0f - r2)));
-        auto wo     = glm::normalize(onb.toWorld(lo));
+        auto wo     = glm::normalize(onb.localToWorld(lo));
 
         pathSegment.ray.origin = intersect + EPSILON * wo;
         pathSegment.ray.direction = wo;
