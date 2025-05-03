@@ -16,6 +16,13 @@ if(NOT DEFINED CMAKE_CUDA_STANDARD)
     set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 endif()
 
+# Enable C++17 for host code
+# set(CMAKE_CXX_STANDARD 17)
+# if(NOT DEFINED CMAKE_CUDA_STANDARD)
+#     set(CMAKE_CUDA_STANDARD 17)
+#     set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+# endif()
+
 # Set a default build type if none was specified
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     SET(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build." FORCE)
@@ -62,6 +69,8 @@ set(headers
     src/sceneStructs.h
     src/preview.h
     src/utilities.h
+    src/mipmap.h
+    src/texture.h
 )
 
 set(sources

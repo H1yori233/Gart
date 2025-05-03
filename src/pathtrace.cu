@@ -393,37 +393,6 @@ __global__ void shadeMaterialNEE(
             else {
                 glm::vec3 intersect = pathSegments[idx].ray.origin + 
                     pathSegments[idx].ray.direction * intersection.t;
-                
-                // ----------------------------------------------- //
-
-                // Sample Light
-                float sx = u01(rng) * emitters_size;
-                int index = glm::clamp((int)sx, 0, emitters_size - 1);
-                // float   rv1 = sx - index;
-
-                // Get Color and PDF
-                Geom child = emitters[index];
-                float prob = 1.f / emitters_size;
-                glm::vec3 L_dir;
-                float pdf = 0.f;
-
-                if (child.type == CUBE)
-                {
-                    L_dir = boxSample(child, pathSegments[idx].ray, material, rng, pdf);
-                }
-                else if (child.type == SPHERE)
-                {
-                    L_dir = sphereSample(child, pathSegments[idx].ray, material, rng, pdf);    
-                }
-                else if (child.type == TRIANGLE)
-                {
-                    L_dir = triangleSample(child, pathSegments[idx].ray, material, rng, pdf);    
-                }
-                L_dir *= pdf;
-                pdf *= prob;
-
-                // ----------------------------------------------- //
-
                 scatterRay(
                     pathSegments[idx],
                     intersect,
@@ -443,7 +412,6 @@ __global__ void shadeMaterialNEE(
         }
     }
 }
-
 
 // Add the current iteration's output to the overall image
 __global__ void finalGather(int nPaths, glm::vec3* image, PathSegment* iterationPaths)

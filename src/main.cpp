@@ -89,7 +89,7 @@ void saveImage()
 {
     float samples = iteration;
     // output image file
-    Image img(width, height);
+    Image3 img(width, height);
 
     for (int x = 0; x < width; x++)
     {

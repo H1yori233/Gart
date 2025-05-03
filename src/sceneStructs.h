@@ -4,6 +4,7 @@
 #include <vector>
 #include <cuda_runtime.h>
 #include "glm/glm.hpp"
+// #include "texture.h"
 
 #define BACKGROUND_COLOR (glm::vec3(0.0f))
 
