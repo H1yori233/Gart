@@ -8,6 +8,12 @@
 #include <cctype>
 // #include <tinyexr.h>
 
+#ifdef __CUDACC__
+#define HOST_DEVICE __host__ __device__
+#else
+#define HOST_DEVICE
+#endif
+
 using namespace std;
 
 template <typename T>
@@ -19,29 +25,47 @@ private:
     T *pixels;
 
 public:
+    Image();
     Image(int x, int y);
     ~Image();
     void setPixel(int x, int y, const T &pixel);
     T getPixel(int x, int y) const;
     void savePNG(const std::string &baseFilename);
     void saveHDR(const std::string &baseFilename);
+
+    HOST_DEVICE inline int getWidth() const
+    {
+        return xSize;
+    }
+
+    HOST_DEVICE inline int getHeight() const
+    {
+        return ySize;
+    }
 };
 
 using Image1 = Image<float>;
 using Image3 = Image<glm::vec3>;
 
-// 图像读取函数
-// Image1 imread1(const std::filesystem::path &filename);
-// Image3 imread3(const std::filesystem::path &filename);
+Image1 imread1(const std::string &filename);
+Image3 imread3(const std::string &filename);
 
-// 辅助函数
-inline std::string to_lowercase(const std::string &str) {
-    std::string result = str;
-    std::transform(result.begin(), result.end(), result.begin(), ::tolower);
-    return result;
+inline void Error(const std::string &msg) {
+    std::cerr << "Error: " << msg << std::endl;
+    exit(1);
 }
 
-// inline void Error(const std::string &msg) {
-//     std::cerr << "Error: " << msg << std::endl;
-//     exit(1);
-// }
+HOST_DEVICE inline int modulo(int a, int b) {
+    auto r = a % b;
+    return (r < 0) ? r+b : r;
+}
+
+HOST_DEVICE inline float modulo(float a, float b) {
+    float r = ::fmodf(a, b);
+    return (r < 0.0f) ? r+b : r;
+}
+
+HOST_DEVICE inline double modulo(double a, double b) {
+    double r = ::fmod(a, b);
+    return (r < 0.0) ? r+b : r;
+}

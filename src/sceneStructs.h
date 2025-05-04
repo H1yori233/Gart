@@ -4,7 +4,7 @@
 #include <vector>
 #include <cuda_runtime.h>
 #include "glm/glm.hpp"
-// #include "texture.h"
+#include "texture.h"
 
 #define BACKGROUND_COLOR (glm::vec3(0.0f))
 
@@ -43,7 +43,7 @@ struct Geom
 
 struct Material
 {
-    glm::vec3 color;
+    TextureSpectrum color;
     struct
     {
         float exponent;
@@ -93,6 +93,7 @@ struct ShadeableIntersection
   float t;
   glm::vec3 surfaceNormal;
   int materialId;
+  glm::vec2 uv;
 };
 
 

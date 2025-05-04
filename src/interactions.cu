@@ -1,5 +1,6 @@
 #include "interactions.h"
 #include "random.h"
+#include "texture.h"
 
 __host__ __device__ glm::vec3 calculateRandomDirectionInHemisphere(
     glm::vec3 normal,
@@ -68,6 +69,7 @@ __host__ __device__ void scatterRay(
     glm::vec3 intersect,
     glm::vec3 normal,
     const Material &m,
+    const DevTexturePool &texture_pool,
     thrust::default_random_engine &rng)
 {
     // TODO: implement this.
@@ -137,7 +139,7 @@ __host__ __device__ void scatterRay(
         pathSegment.ray.direction = wo;
 
         // * pdf and then / pdf, so ignore it
-        pathSegment.color *= m.color;
+        pathSegment.color *= eval(m.color, glm::vec2(0.0f, 0.0f), 0.0f, texture_pool);
     }
 
     pathSegment.remainingBounces--;

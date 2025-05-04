@@ -45,25 +45,25 @@ void Scene::loadFromJSON(const std::string &jsonName)
         if (p["TYPE"] == "Diffuse")
         {
             const auto &col = p["RGB"];
-            newMaterial.color = glm::vec3(col[0], col[1], col[2]);
+            newMaterial.color = make_constant_spectrum_texture(glm::vec3(col[0], col[1], col[2]));
         }
         else if (p["TYPE"] == "Emitting")
         {
             const auto &col = p["RGB"];
-            newMaterial.color = glm::vec3(col[0], col[1], col[2]);
+            newMaterial.color = make_constant_spectrum_texture(glm::vec3(col[0], col[1], col[2]));
             newMaterial.emittance = p["EMITTANCE"];
         }
         else if (p["TYPE"] == "Specular")
         {
             const auto &col = p["RGB"];
-            newMaterial.color = glm::vec3(col[0], col[1], col[2]);
+            newMaterial.color = make_constant_spectrum_texture(glm::vec3(col[0], col[1], col[2]));
             newMaterial.hasReflective = 1.0f;
             newMaterial.specular.color = glm::vec3(col[0], col[1], col[2]);
         }
         else if (p["TYPE"] == "Dielectric")
         {
             const auto &col = p["RGB"];
-            newMaterial.color = glm::vec3(col[0], col[1], col[2]);
+            newMaterial.color = make_constant_spectrum_texture(glm::vec3(col[0], col[1], col[2]));
             newMaterial.hasRefractive = 1.0f;
             newMaterial.specular.color = glm::vec3(col[0], col[1], col[2]);
             newMaterial.indexOfRefraction = p["IOR"];
@@ -224,7 +224,7 @@ void Scene::loadFromGLTF(const std::string &gltfName)
     }
 
     Material newMaterial{};
-    newMaterial.color = glm::vec3(0.8f, 0.8f, 0.8f);
+    newMaterial.color = make_constant_spectrum_texture(glm::vec3(0.8f, 0.8f, 0.8f));
     uint32_t materialId = this->materials.size();
     this->materials.push_back(newMaterial);
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "intersections.h"
+#include "texture.h"
 #include <glm/glm.hpp>
 #include <thrust/random.h>
 // CHECKITOUT
@@ -45,4 +46,5 @@ __host__ __device__ void scatterRay(
     glm::vec3 intersect,
     glm::vec3 normal,
     const Material& m,
+    const DevTexturePool& texture_pool,
     thrust::default_random_engine& rng);

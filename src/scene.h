@@ -7,7 +7,7 @@
 #include "glm/glm.hpp"
 #include "utilities.h"
 #include "sceneStructs.h"
-// #include "texture.h"
+#include "texture.h"
 
 using namespace std;
 
@@ -26,5 +26,6 @@ public:
     std::vector<Geom> geoms;
     std::vector<Geom> emitters;
     std::vector<Material> materials;
+    TexturePool texture_pool;
     RenderState state;
 };

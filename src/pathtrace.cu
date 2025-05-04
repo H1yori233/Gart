@@ -16,6 +16,7 @@
 #include "utilities.h"
 #include "intersections.h"
 #include "interactions.h"
+#include "texture.h"
 
 #include "../stream_compaction/efficient.h"
 #include "../stream_compaction/thrust.h"
@@ -89,6 +90,7 @@ static ShadeableIntersection* dev_intersections = NULL;
 // TODO: static variables for device memory, any extra info you need, etc
 // ...
 static Geom* dev_emitters = NULL;
+static DevTexturePool dev_texture_pool;
 
 void InitDataContainer(GuiDataContainer* imGuiData)
 {
@@ -119,6 +121,7 @@ void pathtraceInit(Scene* scene)
     // TODO: initialize any extra device memeory you need
     cudaMalloc(&dev_emitters, scene->emitters.size() * sizeof(Geom));
     cudaMemcpy(dev_emitters, scene->emitters.data(), scene->emitters.size() * sizeof(Geom), cudaMemcpyHostToDevice);
+    uploadTexturePool(dev_texture_pool, scene->texture_pool);
 
     checkCUDAError("pathtraceInit");
 }
@@ -132,6 +135,8 @@ void pathtraceFree()
     cudaFree(dev_intersections);
     // TODO: clean up any extra device memory you created
     cudaFree(dev_emitters);
+    cudaFree(dev_texture_pool.image1s);
+    cudaFree(dev_texture_pool.image3s);
     checkCUDAError("pathtraceFree");
 }
 
@@ -208,12 +213,14 @@ __global__ void computeIntersections(
         float t;
         glm::vec3 intersect_point;
         glm::vec3 normal;
+        glm::vec2 uv;
         float t_min = FLT_MAX;
         int hit_geom_index = -1;
         bool outside = true;
 
         glm::vec3 tmp_intersect;
         glm::vec3 tmp_normal;
+        glm::vec2 tmp_uv;
 
         // naive parse through global geoms
 
@@ -223,16 +230,19 @@ __global__ void computeIntersections(
 
             if (geom.type == CUBE)
             {
-                t = boxIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+                t = boxIntersectionTest(geom, pathSegment.ray, 
+                    tmp_intersect, tmp_normal, tmp_uv, outside);
             }
             else if (geom.type == SPHERE)
             {
-                t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+                t = sphereIntersectionTest(geom, pathSegment.ray, 
+                    tmp_intersect, tmp_normal, tmp_uv, outside);
             }
             // TODO: add more intersection tests here... triangle? metaball? CSG?
             else if (geom.type == TRIANGLE)
             {
-                t = triangleIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+                t = triangleIntersectionTest(geom, pathSegment.ray, 
+                    tmp_intersect, tmp_normal, tmp_uv, outside);
             }
 
             // Compute the minimum t from the intersection tests to determine what
@@ -243,6 +253,7 @@ __global__ void computeIntersections(
                 hit_geom_index = i;
                 intersect_point = tmp_intersect;
                 normal = tmp_normal;
+                uv = tmp_uv;
             }
         }
 
@@ -256,6 +267,7 @@ __global__ void computeIntersections(
             intersections[path_index].t = t_min;
             intersections[path_index].materialId = geoms[hit_geom_index].materialid;
             intersections[path_index].surfaceNormal = normal;
+            intersections[path_index].uv = uv;
         }
     }
 }
@@ -274,7 +286,8 @@ __global__ void shadeFakeMaterial(
     int num_paths,
     ShadeableIntersection* shadeableIntersections,
     PathSegment* pathSegments,
-    Material* materials)
+    Material* materials,
+    DevTexturePool* texture_pool)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < num_paths)
@@ -289,7 +302,8 @@ __global__ void shadeFakeMaterial(
             thrust::uniform_real_distribution<float> u01(0, 1);
 
             Material material = materials[intersection.materialId];
-            glm::vec3 materialColor = material.color;
+            // glm::vec3 materialColor = material.color;
+            glm::vec3 materialColor = eval(material.color, glm::vec2(0, 0), 0.0f, *texture_pool);
 
             // If the material indicates that the object was a light, "light" the ray
             if (material.emittance > 0.0f) {
@@ -319,58 +333,8 @@ __global__ void shadeMaterial(
     int num_paths,
     ShadeableIntersection* shadeableIntersections,
     PathSegment* pathSegments,
-    Material* materials)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < num_paths)
-    {
-        ShadeableIntersection intersection = shadeableIntersections[idx];
-        if (intersection.t > 0.0f) // if the intersection exists...
-        {
-            // Set up the RNG
-            thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, 0);
-            thrust::uniform_real_distribution<float> u01(0, 1);
-
-            Material material = materials[intersection.materialId];
-            glm::vec3 materialColor = material.color;
-
-            // If the material indicates that the object was a light, "light" the ray
-            if (material.emittance > 0.0f) {
-                pathSegments[idx].color *= (materialColor * material.emittance);
-                pathSegments[idx].remainingBounces = -1;
-            }
-            else {
-                glm::vec3 intersect = pathSegments[idx].ray.origin + 
-                    pathSegments[idx].ray.direction * intersection.t;
-                scatterRay(
-                    pathSegments[idx],
-                    intersect,
-                    intersection.surfaceNormal,
-                    material,
-                    rng
-                );
-            }
-            // If there was no intersection, color the ray black.
-            // Lots of renderers use 4 channel color, RGBA, where A = alpha, often
-            // used for opacity, in which case they can indicate "no opacity".
-            // This can be useful for post-processing and image compositing.
-        }
-        else {
-            pathSegments[idx].color = glm::vec3(0.0f);
-            pathSegments[idx].remainingBounces = -1;
-        }
-    }
-}
-
-// Sample Direct Light
-__global__ void shadeMaterialNEE(
-    int iter,
-    int num_paths,
-    ShadeableIntersection* shadeableIntersections,
-    PathSegment* pathSegments,
     Material* materials,
-    Geom* emitters, 
-    int emitters_size)
+    DevTexturePool* texture_pool)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < num_paths)
@@ -383,7 +347,7 @@ __global__ void shadeMaterialNEE(
             thrust::uniform_real_distribution<float> u01(0, 1);
 
             Material material = materials[intersection.materialId];
-            glm::vec3 materialColor = material.color;
+            glm::vec3 materialColor = eval(material.color, glm::vec2(0, 0), 0.0f, *texture_pool);
 
             // If the material indicates that the object was a light, "light" the ray
             if (material.emittance > 0.0f) {
@@ -398,6 +362,7 @@ __global__ void shadeMaterialNEE(
                     intersect,
                     intersection.surfaceNormal,
                     material,
+                    *texture_pool,
                     rng
                 );
             }
@@ -552,7 +517,8 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             num_paths,
             dev_intersections,
             dev_paths,
-            dev_materials
+            dev_materials,
+            &dev_texture_pool
         );
         // shadeMaterialNEE<<<numblocksPathSegmentTracing, blockSize1d>>>(
         //     iter,
