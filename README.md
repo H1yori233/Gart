@@ -29,6 +29,7 @@ GART
 - [ ] ReSTIR-DI
 
 ### Functions
+![](img/cornell.2025-04-03_13-21-07z.2337samp.png)
 
 
 ###

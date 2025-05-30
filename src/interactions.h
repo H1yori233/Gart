@@ -46,5 +46,6 @@ __host__ __device__ void scatterRay(
     glm::vec3 intersect,
     glm::vec3 normal,
     const Material& m,
+    const glm::vec2& uv,
     const DevTexturePool& texture_pool,
     thrust::default_random_engine& rng);

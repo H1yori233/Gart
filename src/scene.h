@@ -16,8 +16,8 @@ class Scene
 private:
     ifstream fp_in;
     void loadFromJSON(const std::string& jsonName);
-    void loadFromGLTF(const std::string& gltfName);
-    void loadMeshFromGLTF(const std::string& gltfPath, const Geom& baseGeom);
+    void loadFromOBJ(const std::string& objName);
+    void loadMeshFromOBJ(const std::string& objPath, const Geom& baseGeom);
 
 public:
     Scene(string filename);

@@ -4,11 +4,6 @@
 #include <glm/gtx/string_cast.hpp>
 #include <unordered_map>
 #include "json.hpp"
-
-#define TINYGLTF_IMPLEMENTATION
-#define TINYGLTF_NO_STB_IMAGE_IMPLEMENTATION
-#define TINYGLTF_NO_STB_IMAGE_WRITE_IMPLEMENTATION
-#include "gltf/tiny_gltf.h"
 #include "scene.h"
 
 using json = nlohmann::json;
@@ -34,42 +29,121 @@ void Scene::loadFromJSON(const std::string &jsonName)
 {
     std::ifstream f(jsonName);
     json data = json::parse(f);
-    const auto &materialsData = data["Materials"];
+
+    // Load textures if present
+    std::unordered_map<std::string, uint32_t> TexNameToID;
+    std::vector<std::shared_ptr<TextureSpectrum>> textures;
+    
+    if (data.contains("Textures")) {
+        const auto &texturesData = data["Textures"];
+        for (const auto &item : texturesData.items()) {
+            const std::string name = item.key();
+            const auto &p = item.value();
+            if (!p.contains("TYPE")) {
+                std::cerr << "Texture \"" << name << "\" missing TYPE field." << std::endl;
+                continue;
+            }
+            std::shared_ptr<TextureSpectrum> tex;
+            std::string type = p["TYPE"];
+            
+            if (type == "constant") {
+                auto col = p["RGB"];
+                if (col.size() != 3) {
+                    std::cerr << "Texture \"" << name << "\": constant missing RGB." << std::endl;
+                    continue;
+                }
+                tex = std::make_shared<TextureSpectrum>(
+                    make_constant_spectrum_texture(glm::vec3(col[0], col[1], col[2])));
+            }
+            else if (type == "checker") {
+                auto c1 = p["COLOR1"], c2 = p["COLOR2"];
+                float scale = p["SCALE"];
+                tex = std::make_shared<TextureSpectrum>(
+                        make_checkerboard_spectrum_texture(
+                        glm::vec3(c1[0],c1[1],c1[2]),
+                        glm::vec3(c2[0],c2[1],c2[2]),
+                        scale, scale));
+            }
+            else if (type == "image") {
+                std::string file = p["FILE"];
+                if (file.empty()) {
+                    std::cerr << "Texture \"" << name << "\": image missing FILE." << std::endl;
+                    continue;
+                }
+                tex = std::make_shared<TextureSpectrum>(
+                    make_image_spectrum_texture(name, file, texture_pool));
+            }
+            else {
+                std::cerr << "Unsupported Texture type: " << type << std::endl;
+                continue;
+            }
+            TexNameToID[name] = (uint32_t)textures.size();
+            textures.push_back(tex);
+            std::cout << "  Loaded texture: " << name << " (" << type << ")" << std::endl;
+        }
+    }
+
     std::unordered_map<std::string, uint32_t> MatNameToID;
+    if (!data.contains("Materials")) {
+        std::cerr << "Scene::loadFromJSON(): no Materials section." << std::endl;
+        std::exit(-1);
+    }
+    const auto &materialsData = data["Materials"];
     for (const auto &item : materialsData.items())
     {
         const auto &name = item.key();
         const auto &p = item.value();
         Material newMaterial{};
+
+        if (p.find("TEXTURE") != p.end()) {
+            std::string tname = p["TEXTURE"];
+            if (TexNameToID.find(tname) != TexNameToID.end()) {
+                uint32_t tid = TexNameToID[tname];
+                newMaterial.color = *textures[tid];
+            } else {
+                std::cerr << "Material \"" << name << "\" references unknown texture \"" << tname << "\"" << std::endl;
+                const auto &col = p["RGB"];
+                newMaterial.color = make_constant_spectrum_texture(
+                    glm::vec3(col[0], col[1], col[2]));
+            }
+        }
+        else {
+            const auto &col = p["RGB"];
+            newMaterial.color = make_constant_spectrum_texture(
+                glm::vec3(col[0], col[1], col[2]));
+        }
+
         // TODO: handle materials loading differently
         if (p["TYPE"] == "Diffuse")
         {
             const auto &col = p["RGB"];
-            newMaterial.color = make_constant_spectrum_texture(glm::vec3(col[0], col[1], col[2]));
         }
         else if (p["TYPE"] == "Emitting")
         {
             const auto &col = p["RGB"];
-            newMaterial.color = make_constant_spectrum_texture(glm::vec3(col[0], col[1], col[2]));
             newMaterial.emittance = p["EMITTANCE"];
         }
         else if (p["TYPE"] == "Specular")
         {
             const auto &col = p["RGB"];
-            newMaterial.color = make_constant_spectrum_texture(glm::vec3(col[0], col[1], col[2]));
             newMaterial.hasReflective = 1.0f;
             newMaterial.specular.color = glm::vec3(col[0], col[1], col[2]);
         }
         else if (p["TYPE"] == "Dielectric")
         {
             const auto &col = p["RGB"];
-            newMaterial.color = make_constant_spectrum_texture(glm::vec3(col[0], col[1], col[2]));
             newMaterial.hasRefractive = 1.0f;
             newMaterial.specular.color = glm::vec3(col[0], col[1], col[2]);
             newMaterial.indexOfRefraction = p["IOR"];
         }
         MatNameToID[name] = materials.size();
         materials.emplace_back(newMaterial);
+        std::cout << "  Loaded material: " << name << " (" << p["TYPE"] << ")" << std::endl;
+    }
+
+    if (!data.contains("Objects")) {
+        std::cerr << "Scene::loadFromJSON(): no Objects section." << std::endl;
+        std::exit(-1);
     }
     const auto &objectsData = data["Objects"];
     for (const auto &p : objectsData)
@@ -95,15 +169,11 @@ void Scene::loadFromJSON(const std::string &jsonName)
 
             if (meshExt == ".obj")
             {
-                // loadMeshFromOBJ(meshPath, baseGeom);
-            }
-            else if (meshExt == ".gltf" || meshExt == ".glb")
-            {
-                loadMeshFromGLTF(meshPath, baseGeom);
+                loadMeshFromOBJ(meshPath, baseGeom);
             }
             else
             {
-                std::cerr << "Unsupported Mesh: " << meshExt << std::endl;
+                std::cerr << "Unsupported Mesh format: " << meshExt << ". Only .obj files are supported." << std::endl;
             }
 
             continue;
@@ -136,6 +206,9 @@ void Scene::loadFromJSON(const std::string &jsonName)
             emitters.push_back(newGeom);
         }
     }
+    std::cout << "  Total geometries: " << geoms.size()
+        << ", emitters: " << emitters.size() << std::endl;
+
     const auto &cameraData = data["Camera"];
     Camera &camera = state.camera;
     RenderState &state = this->state;
@@ -188,206 +261,159 @@ void Scene::loadFromJSON(const std::string &jsonName)
     std::fill(state.image.begin(), state.image.end(), glm::vec3());
 }
 
-void Scene::loadFromGLTF(const std::string &gltfName)
+void Scene::loadFromOBJ(const std::string &objName)
 {
-    std::cout << "Begin GLTF Loading Mesh from: " << gltfName << std::endl;
+    std::cout << "Begin OBJ Loading Mesh from: " << objName << std::endl;
 
-    tinygltf::Model model;
-    tinygltf::TinyGLTF loader;
-    std::string err;
-    std::string warn;
-
-    bool ret = false;
-    if (gltfName.find(".glb") != std::string::npos)
-    {
-        ret = loader.LoadBinaryFromFile(&model, &err, &warn, gltfName);
-    }
-    else
-    {
-        ret = loader.LoadASCIIFromFile(&model, &err, &warn, gltfName);
-    }
-
-    if (!warn.empty())
-    {
-        std::cout << "glTF Load Warn: " << warn << std::endl;
-    }
-
-    if (!err.empty())
-    {
-        std::cerr << "glTF Load Error: " << err << std::endl;
-    }
-
-    if (!ret)
-    {
-        std::cerr << "Can not load glTF file: " << gltfName << std::endl;
+    std::ifstream file(objName);
+    if (!file.is_open()) {
+        std::cerr << "Cannot open OBJ file: " << objName << std::endl;
         return;
     }
 
+    // Create default material for OBJ
     Material newMaterial{};
     newMaterial.color = make_constant_spectrum_texture(glm::vec3(0.8f, 0.8f, 0.8f));
+    newMaterial.emittance = 0.0f;
+    newMaterial.hasReflective = 0.0f;
+    newMaterial.hasRefractive = 0.0f;
+    newMaterial.indexOfRefraction = 1.0f;
     uint32_t materialId = this->materials.size();
     this->materials.push_back(newMaterial);
 
-    for (const auto &mesh : model.meshes)
-    {
-        for (const auto &primitive : mesh.primitives)
-        {
-            // Index
-            const tinygltf::Accessor &indexAccessor = model.accessors[primitive.indices];
-            const tinygltf::BufferView &indexBufferView = model.bufferViews[indexAccessor.bufferView];
-            const tinygltf::Buffer &indexBuffer = model.buffers[indexBufferView.buffer];
+    std::vector<glm::vec3> vertices;
+    std::vector<glm::vec3> normals;
+    std::vector<glm::vec2> texCoords;
+    std::string line;
 
-            // Position
-            const tinygltf::Accessor &posAccessor = model.accessors[primitive.attributes.find("POSITION")->second];
-            const tinygltf::BufferView &posBufferView = model.bufferViews[posAccessor.bufferView];
-            const tinygltf::Buffer &posBuffer = model.buffers[posBufferView.buffer];
+    while (std::getline(file, line)) {
+        std::istringstream iss(line);
+        std::string prefix;
+        iss >> prefix;
 
-            // Normal
-            bool hasNormals = primitive.attributes.find("NORMAL") != primitive.attributes.end();
-            tinygltf::Accessor normalAccessor;
-            tinygltf::BufferView normalBufferView;
-            tinygltf::Buffer normalBuffer;
+        if (prefix == "v") {
+            // Vertex position
+            float x, y, z;
+            iss >> x >> y >> z;
+            vertices.push_back(glm::vec3(x, y, z));
+        }
+        else if (prefix == "vn") {
+            // Vertex normal
+            float x, y, z;
+            iss >> x >> y >> z;
+            normals.push_back(glm::normalize(glm::vec3(x, y, z)));
+        }
+        else if (prefix == "vt") {
+            // Texture coordinate
+            float u, v;
+            iss >> u >> v;
+            texCoords.push_back(glm::vec2(u, v));
+        }
+        else if (prefix == "f") {
+            // Face - parse triangle faces
+            std::string vertex1, vertex2, vertex3;
+            iss >> vertex1 >> vertex2 >> vertex3;
 
-            if (hasNormals)
-            {
-                normalAccessor = model.accessors[primitive.attributes.find("NORMAL")->second];
-                normalBufferView = model.bufferViews[normalAccessor.bufferView];
-                normalBuffer = model.buffers[normalBufferView.buffer];
+            // Parse vertex indices (format: v/vt/vn or v//vn or v/vt or v)
+            auto parseVertex = [](const std::string& vertexStr) -> glm::ivec3 {
+                glm::ivec3 indices(-1, -1, -1); // v, vt, vn indices
+                std::istringstream viss(vertexStr);
+                std::string index;
+                
+                int i = 0;
+                while (std::getline(viss, index, '/') && i < 3) {
+                    if (!index.empty()) {
+                        indices[i] = std::stoi(index) - 1; // OBJ indices are 1-based
+                    }
+                    i++;
+                }
+                return indices;
+            };
+
+            glm::ivec3 v1 = parseVertex(vertex1);
+            glm::ivec3 v2 = parseVertex(vertex2);
+            glm::ivec3 v3 = parseVertex(vertex3);
+
+            // Validate vertex indices
+            if (v1.x < 0 || v1.x >= vertices.size() ||
+                v2.x < 0 || v2.x >= vertices.size() ||
+                v3.x < 0 || v3.x >= vertices.size()) {
+                std::cerr << "Invalid vertex indices in OBJ file" << std::endl;
+                continue;
             }
 
-            // UV
-            bool hasTexCoords = primitive.attributes.find("TEXCOORD_0") != primitive.attributes.end();
-            tinygltf::Accessor texcoordAccessor;
-            tinygltf::BufferView texcoordBufferView;
-            tinygltf::Buffer texcoordBuffer;
+            Geom geom;
+            geom.type = TRIANGLE;
+            geom.materialid = materialId;
 
-            if (hasTexCoords)
-            {
-                texcoordAccessor = model.accessors[primitive.attributes.find("TEXCOORD_0")->second];
-                texcoordBufferView = model.bufferViews[texcoordAccessor.bufferView];
-                texcoordBuffer = model.buffers[texcoordBufferView.buffer];
+            // Set vertex positions
+            geom.triangle.v0 = vertices[v1.x];
+            geom.triangle.v1 = vertices[v2.x];
+            geom.triangle.v2 = vertices[v3.x];
+
+            // Set normals
+            bool hasNormals = v1.z >= 0 && v2.z >= 0 && v3.z >= 0 &&
+                             v1.z < normals.size() && v2.z < normals.size() && v3.z < normals.size();
+            
+            if (hasNormals) {
+                geom.triangle.n0 = normals[v1.z];
+                geom.triangle.n1 = normals[v2.z];
+                geom.triangle.n2 = normals[v3.z];
+            } else {
+                // Calculate face normal
+                glm::vec3 normal = glm::normalize(glm::cross(
+                    geom.triangle.v1 - geom.triangle.v0,
+                    geom.triangle.v2 - geom.triangle.v0));
+                geom.triangle.n0 = normal;
+                geom.triangle.n1 = normal;
+                geom.triangle.n2 = normal;
             }
 
-            size_t indexCount = indexAccessor.count;
-            const unsigned char *indexData = &indexBuffer.data[indexBufferView.byteOffset + indexAccessor.byteOffset];
-            for (size_t i = 0; i < indexCount; i += 3)
-            {
-                Geom geom;
-                geom.type = TRIANGLE;
-                geom.materialid = materialId;
+            // Set texture coordinates
+            bool hasTexCoords = v1.y >= 0 && v2.y >= 0 && v3.y >= 0 &&
+                               v1.y < texCoords.size() && v2.y < texCoords.size() && v3.y < texCoords.size();
+            
+            if (hasTexCoords) {
+                geom.triangle.t0 = texCoords[v1.y];
+                geom.triangle.t1 = texCoords[v2.y];
+                geom.triangle.t2 = texCoords[v3.y];
+            } else {
+                geom.triangle.t0 = glm::vec2(0.0f, 0.0f);
+                geom.triangle.t1 = glm::vec2(1.0f, 0.0f);
+                geom.triangle.t2 = glm::vec2(0.0f, 1.0f);
+            }
 
-                // Indices
-                uint32_t indices[3];
-                if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT)
-                {
-                    uint16_t *indexPtr = (uint16_t *)indexData;
-                    indices[0] = indexPtr[i];
-                    indices[1] = indexPtr[i + 1];
-                    indices[2] = indexPtr[i + 2];
-                }
-                else if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT)
-                {
-                    uint32_t *indexPtr = (uint32_t *)indexData;
-                    indices[0] = indexPtr[i];
-                    indices[1] = indexPtr[i + 1];
-                    indices[2] = indexPtr[i + 2];
-                }
-                else if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE)
-                {
-                    uint8_t *indexPtr = (uint8_t *)indexData;
-                    indices[0] = indexPtr[i];
-                    indices[1] = indexPtr[i + 1];
-                    indices[2] = indexPtr[i + 2];
-                }
+            geom.translation = glm::vec3(0.0f);
+            geom.rotation = glm::vec3(0.0f);
+            geom.scale = glm::vec3(1.0f);
+            geom.transform = glm::mat4(1.0f);
+            geom.inverseTransform = glm::mat4(1.0f);
+            geom.invTranspose = glm::mat4(1.0f);
 
-                // Positions
-                const unsigned char *posData = &posBuffer.data[posBufferView.byteOffset + posAccessor.byteOffset];
-                size_t posStride = posAccessor.ByteStride(posBufferView) ? posAccessor.ByteStride(posBufferView) : sizeof(float) * 3;
-
-                float *v0 = (float *)(posData + indices[0] * posStride);
-                float *v1 = (float *)(posData + indices[1] * posStride);
-                float *v2 = (float *)(posData + indices[2] * posStride);
-
-                geom.triangle.v0 = glm::vec3(v0[0], v0[1], v0[2]);
-                geom.triangle.v1 = glm::vec3(v1[0], v1[1], v1[2]);
-                geom.triangle.v2 = glm::vec3(v2[0], v2[1], v2[2]);
-
-                // Normals
-                if (hasNormals)
-                {
-                    const unsigned char *normalData = &normalBuffer.data[normalBufferView.byteOffset + normalAccessor.byteOffset];
-                    size_t normalStride = normalAccessor.ByteStride(normalBufferView) ? normalAccessor.ByteStride(normalBufferView) : sizeof(float) * 3;
-
-                    float *n0 = (float *)(normalData + indices[0] * normalStride);
-                    float *n1 = (float *)(normalData + indices[1] * normalStride);
-                    float *n2 = (float *)(normalData + indices[2] * normalStride);
-
-                    geom.triangle.n0 = glm::vec3(n0[0], n0[1], n0[2]);
-                    geom.triangle.n1 = glm::vec3(n1[0], n1[1], n1[2]);
-                    geom.triangle.n2 = glm::vec3(n2[0], n2[1], n2[2]);
-                }
-                else
-                {
-                    glm::vec3 normal = glm::normalize(glm::cross(
-                        geom.triangle.v1 - geom.triangle.v0,
-                        geom.triangle.v2 - geom.triangle.v0));
-                    geom.triangle.n0 = normal;
-                    geom.triangle.n1 = normal;
-                    geom.triangle.n2 = normal;
-                }
-
-                // UVs
-                if (hasTexCoords)
-                {
-                    const unsigned char *texcoordData = &texcoordBuffer.data[texcoordBufferView.byteOffset + texcoordAccessor.byteOffset];
-                    size_t texcoordStride = texcoordAccessor.ByteStride(texcoordBufferView) ? texcoordAccessor.ByteStride(texcoordBufferView) : sizeof(float) * 2;
-
-                    float *t0 = (float *)(texcoordData + indices[0] * texcoordStride);
-                    float *t1 = (float *)(texcoordData + indices[1] * texcoordStride);
-                    float *t2 = (float *)(texcoordData + indices[2] * texcoordStride);
-
-                    geom.triangle.t0 = glm::vec2(t0[0], t0[1]);
-                    geom.triangle.t1 = glm::vec2(t1[0], t1[1]);
-                    geom.triangle.t2 = glm::vec2(t2[0], t2[1]);
-                }
-                else
-                {
-                    geom.triangle.t0 = glm::vec2(0.0f, 0.0f);
-                    geom.triangle.t1 = glm::vec2(1.0f, 0.0f);
-                    geom.triangle.t2 = glm::vec2(0.0f, 1.0f);
-                }
-
-                geom.translation = glm::vec3(0.0f);
-                geom.rotation = glm::vec3(0.0f);
-                geom.scale = glm::vec3(1.0f);
-                geom.transform = glm::mat4(1.0f);
-                geom.inverseTransform = glm::mat4(1.0f);
-                geom.invTranspose = glm::mat4(1.0f);
-
-                geoms.push_back(geom);
-                if (materials[geom.materialid].emittance > 0.0f) 
-                {
-                    emitters.push_back(geom);
-                }
+            geoms.push_back(geom);
+            if (materials[geom.materialid].emittance > 0.0f) {
+                emitters.push_back(geom);
             }
         }
     }
 
-    std::cout << "Load GLTF Mesh End: " << gltfName << std::endl;
+    file.close();
+    std::cout << "Load OBJ Mesh End: " << objName << std::endl;
+    std::cout << "Loaded " << vertices.size() << " vertices, " << geoms.size() << " total triangles" << std::endl;
 }
 
-void Scene::loadMeshFromGLTF(const std::string &gltfPath, const Geom &baseGeom)
+void Scene::loadMeshFromOBJ(const std::string &objPath, const Geom &baseGeom)
 {
     size_t offset = geoms.size();
-    loadFromGLTF(gltfPath);
+    loadFromOBJ(objPath);
 
-    std::cout << "Begin Set GLTF Geoms from: " << gltfPath << std::endl;
+    std::cout << "Begin Set OBJ Geoms from: " << objPath << std::endl;
 
     for (size_t i = offset; i < geoms.size(); i++)
     {
         geoms[i].materialid = baseGeom.materialid;
 
-        // Transform
+        // Transform vertices
         glm::vec4 v0 = baseGeom.transform * glm::vec4(geoms[i].triangle.v0, 1.0f);
         glm::vec4 v1 = baseGeom.transform * glm::vec4(geoms[i].triangle.v1, 1.0f);
         glm::vec4 v2 = baseGeom.transform * glm::vec4(geoms[i].triangle.v2, 1.0f);
@@ -395,7 +421,7 @@ void Scene::loadMeshFromGLTF(const std::string &gltfPath, const Geom &baseGeom)
         geoms[i].triangle.v1 = glm::vec3(v1) / v1.w;
         geoms[i].triangle.v2 = glm::vec3(v2) / v2.w;
 
-        // Normals
+        // Transform normals
         glm::vec4 n0 = baseGeom.invTranspose * glm::vec4(geoms[i].triangle.n0, 0.0f);
         glm::vec4 n1 = baseGeom.invTranspose * glm::vec4(geoms[i].triangle.n1, 0.0f);
         glm::vec4 n2 = baseGeom.invTranspose * glm::vec4(geoms[i].triangle.n2, 0.0f);
@@ -411,6 +437,10 @@ void Scene::loadMeshFromGLTF(const std::string &gltfPath, const Geom &baseGeom)
         geoms[i].invTranspose = baseGeom.invTranspose;
     }
 
-    std::cout << "Set GLTF Geoms End: " << gltfPath << std::endl;
+    std::cout << "Set OBJ Geoms End: " << objPath << std::endl;
     std::cout << "Number of Geoms: " << geoms.size() << std::endl;
+}
+
+Scene::~Scene()
+{
 }

@@ -79,30 +79,14 @@ __host__ __device__ inline T lookup(const Mipmap<T> &mipmap, float u, float v, i
            val_cc *      u_off  *      v_off;
 }
 
-__host__ __device__ inline float clamp(float f, float min, float max)
-{
-    if (f < min)
-    {
-        return min;
-    }
-    else if (f > max)
-    {
-        return max;
-    }
-    else
-    {
-        return f;
-    }
-}
-
 /// Trilinear look of of a mipmap at (u, v, level)
 template <typename T>
 __host__ __device__ inline T lookup(const Mipmap<T> &mipmap, float u, float v, float level) {
     if (level <= 0) {
         return lookup(mipmap, u, v, 0);
     } else if (level < float(mipmap.numLevels - 1)) {
-        int flevel = clamp((int)floor(level), 0, mipmap.numLevels - 1);
-        int clevel = clamp(flevel + 1, 0, mipmap.numLevels - 1);
+        int flevel = glm::clamp((int)floor(level), 0, mipmap.numLevels - 1);
+        int clevel = glm::clamp(flevel + 1, 0, mipmap.numLevels - 1);
         float level_off = level - flevel;
         return lookup(mipmap, u, v, flevel) * (1 - level_off) +
                lookup(mipmap, u, v, clevel) *      level_off;

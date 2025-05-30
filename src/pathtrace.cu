@@ -303,7 +303,8 @@ __global__ void shadeFakeMaterial(
 
             Material material = materials[intersection.materialId];
             // glm::vec3 materialColor = material.color;
-            glm::vec3 materialColor = eval(material.color, glm::vec2(0, 0), 0.0f, *texture_pool);
+            glm::vec3 materialColor = 
+                eval(material.color, intersection.uv, 0.0f, *texture_pool);
 
             // If the material indicates that the object was a light, "light" the ray
             if (material.emittance > 0.0f) {
@@ -347,7 +348,8 @@ __global__ void shadeMaterial(
             thrust::uniform_real_distribution<float> u01(0, 1);
 
             Material material = materials[intersection.materialId];
-            glm::vec3 materialColor = eval(material.color, glm::vec2(0, 0), 0.0f, *texture_pool);
+            glm::vec3 materialColor = 
+                eval(material.color, intersection.uv, 0.0f, *texture_pool);
 
             // If the material indicates that the object was a light, "light" the ray
             if (material.emittance > 0.0f) {
@@ -362,6 +364,7 @@ __global__ void shadeMaterial(
                     intersect,
                     intersection.surfaceNormal,
                     material,
+                    intersection.uv,
                     *texture_pool,
                     rng
                 );
