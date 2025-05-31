@@ -118,7 +118,7 @@ if(CMAKE_VERSION VERSION_LESS "3.23.0")
 elseif(CMAKE_VERSION VERSION_LESS "3.24.0")
     set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES CUDA_ARCHITECTURES all-major)
 else()
-    set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES CUDA_ARCHITECTURES native)
+    set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES CUDA_ARCHITECTURES all-major)
 endif()
 target_link_libraries(${CMAKE_PROJECT_NAME}
     ${LIBRARIES}
