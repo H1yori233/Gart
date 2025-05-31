@@ -86,7 +86,7 @@ __host__ __device__ void scatterRay(
 
         pathSegment.ray.origin = intersect + EPSILON * wo;
         pathSegment.ray.direction = wo;
-        pathSegment.color *= m.specular.color;
+        pathSegment.color *= eval(m.color, uv, 0.0f, texture_pool);
     }
     else if (m.hasRefractive > 0.f)
     {
@@ -126,6 +126,7 @@ __host__ __device__ void scatterRay(
         // only 0.0001f works.
         pathSegment.ray.origin = intersect + 0.0001f * wo;
         pathSegment.ray.direction = wo;
+        pathSegment.color *= eval(m.color, uv, 0.0f, texture_pool);
     }
     else
     {

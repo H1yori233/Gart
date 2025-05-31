@@ -514,8 +514,8 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         thrust::sort_by_key(thrust::device, p1, p1 + num_paths, p2, compareMaterial());
 #endif
 
-        // shadeFakeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
-        shadeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
+        shadeFakeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
+        // shadeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
             iter,
             num_paths,
             dev_intersections,

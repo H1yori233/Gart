@@ -30,6 +30,13 @@ void Scene::loadFromJSON(const std::string &jsonName)
     std::ifstream f(jsonName);
     json data = json::parse(f);
 
+    // Extract the directory of the JSON file for relative path resolution
+    std::string jsonDir = "";
+    size_t lastSlash = jsonName.find_last_of("/\\");
+    if (lastSlash != std::string::npos) {
+        jsonDir = jsonName.substr(0, lastSlash + 1);
+    }
+
     // Load textures if present
     std::unordered_map<std::string, uint32_t> TexNameToID;
     std::vector<std::shared_ptr<TextureSpectrum>> textures;
@@ -70,8 +77,13 @@ void Scene::loadFromJSON(const std::string &jsonName)
                     std::cerr << "Texture \"" << name << "\": image missing FILE." << std::endl;
                     continue;
                 }
+                // Resolve relative path for image files
+                std::string fullImagePath = file;
+                if (file[0] != '/' && file[0] != '\\' && (file.length() < 2 || file[1] != ':')) {
+                    fullImagePath = jsonDir + file;
+                }
                 tex = std::make_shared<TextureSpectrum>(
-                    make_image_spectrum_texture(name, file, texture_pool));
+                    make_image_spectrum_texture(name, fullImagePath, texture_pool));
             }
             else {
                 std::cerr << "Unsupported Texture type: " << type << std::endl;
@@ -116,25 +128,49 @@ void Scene::loadFromJSON(const std::string &jsonName)
         // TODO: handle materials loading differently
         if (p["TYPE"] == "Diffuse")
         {
-            const auto &col = p["RGB"];
+            // Color already set above using texture or RGB
         }
         else if (p["TYPE"] == "Emitting")
         {
-            const auto &col = p["RGB"];
             newMaterial.emittance = p["EMITTANCE"];
+            // Color already set above using texture or RGB
         }
         else if (p["TYPE"] == "Specular")
         {
-            const auto &col = p["RGB"];
             newMaterial.hasReflective = 1.0f;
-            newMaterial.specular.color = glm::vec3(col[0], col[1], col[2]);
+            if (p.find("TEXTURE") != p.end()) {
+                // Specular uses the same texture as color
+                std::string tname = p["TEXTURE"];
+                if (TexNameToID.find(tname) != TexNameToID.end()) {
+                    uint32_t tid = TexNameToID[tname];
+                    newMaterial.specular.color = glm::vec3(1.0f); // Use white for texture sampling
+                } else {
+                    const auto &col = p["RGB"];
+                    newMaterial.specular.color = glm::vec3(col[0], col[1], col[2]);
+                }
+            } else {
+                const auto &col = p["RGB"];
+                newMaterial.specular.color = glm::vec3(col[0], col[1], col[2]);
+            }
         }
         else if (p["TYPE"] == "Dielectric")
         {
-            const auto &col = p["RGB"];
             newMaterial.hasRefractive = 1.0f;
-            newMaterial.specular.color = glm::vec3(col[0], col[1], col[2]);
             newMaterial.indexOfRefraction = p["IOR"];
+            if (p.find("TEXTURE") != p.end()) {
+                // Dielectric uses the same texture as color
+                std::string tname = p["TEXTURE"];
+                if (TexNameToID.find(tname) != TexNameToID.end()) {
+                    uint32_t tid = TexNameToID[tname];
+                    newMaterial.specular.color = glm::vec3(1.0f); // Use white for texture sampling
+                } else {
+                    const auto &col = p["RGB"];
+                    newMaterial.specular.color = glm::vec3(col[0], col[1], col[2]);
+                }
+            } else {
+                const auto &col = p["RGB"];
+                newMaterial.specular.color = glm::vec3(col[0], col[1], col[2]);
+            }
         }
         MatNameToID[name] = materials.size();
         materials.emplace_back(newMaterial);
@@ -152,7 +188,13 @@ void Scene::loadFromJSON(const std::string &jsonName)
         if (type == "mesh")
         {
             std::string meshPath = p["FILE"];
-            auto meshExt = meshPath.substr(meshPath.find_last_of('.'));
+            // Resolve relative path for mesh files
+            std::string fullMeshPath = meshPath;
+            if (meshPath[0] != '/' && meshPath[0] != '\\' && (meshPath.length() < 2 || meshPath[1] != ':')) {
+                fullMeshPath = jsonDir + meshPath;
+            }
+            
+            auto meshExt = fullMeshPath.substr(fullMeshPath.find_last_of('.'));
             Geom baseGeom;
             baseGeom.materialid = MatNameToID[p["MATERIAL"]];
 
@@ -169,7 +211,7 @@ void Scene::loadFromJSON(const std::string &jsonName)
 
             if (meshExt == ".obj")
             {
-                loadMeshFromOBJ(meshPath, baseGeom);
+                loadMeshFromOBJ(fullMeshPath, baseGeom);
             }
             else
             {

@@ -17,7 +17,7 @@ GART
 ### TODO List
 - [X] Dielectric Material
 - [X] Depth of Field
-- [X] Mesh Loading (`glTF`)
+- [X] Mesh Loading (`obj`)
 - [ ] Texture Mapping
 - [ ] Bump Mapping
 - [ ] Hierarchy construction and traversal (`BVH`)
