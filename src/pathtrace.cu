@@ -7,6 +7,10 @@
 #include <thrust/random.h>
 #include <thrust/remove.h>
 #include <thrust/partition.h>
+#include <thrust/sort.h>
+#include <thrust/device_ptr.h>
+#include <thrust/iterator/zip_iterator.h>
+#include <thrust/tuple.h>
 
 #include "sceneStructs.h"
 #include "scene.h"
@@ -17,6 +21,38 @@
 #include "interactions.h"
 
 #define ERRORCHECK 1
+#define SORT_BY_MATERIAL 1  // Toggle for material-based sorting optimization
+
+/**
+ * MATERIAL-BASED SORTING OPTIMIZATION:
+ * 
+ * When SORT_BY_MATERIAL is enabled (set to 1), path segments and intersections
+ * are sorted by material ID before shading. This optimization addresses the 
+ * performance issue of warp divergence in the shading kernel.
+ * 
+ * PROBLEM:
+ * - In a typical scene, adjacent pixels may hit different materials
+ * - When threads in the same warp execute different material/BSDF code paths,
+ *   they diverge and execute serially, reducing parallel efficiency
+ * 
+ * SOLUTION:
+ * - Sort rays by material ID so threads with the same material are contiguous
+ * - Threads in the same warp will execute the same BSDF code path
+ * - This reduces warp divergence and improves parallel efficiency
+ * 
+ * CRITICAL IMPLEMENTATION DETAIL:
+ * - PathSegment and ShadeableIntersection arrays MUST be sorted together
+ * - Using zip_iterator ensures paths[i] ↔ intersections[i] correspondence is maintained
+ * - Previous buggy approach: sorting arrays separately broke this correspondence
+ * 
+ * PERFORMANCE IMPACT:
+ * - Adds sorting overhead each bounce (~O(n log n) per bounce)
+ * - Reduces warp divergence in shading kernel (can be significant speedup)
+ * - Net performance depends on material diversity and scene complexity
+ * - Most beneficial in scenes with many different materials
+ * 
+ * TOGGLE: Set SORT_BY_MATERIAL to 0 to disable, 1 to enable
+ */
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
@@ -84,6 +120,10 @@ static ShadeableIntersection* dev_intersections = NULL;
 // TODO: static variables for device memory, any extra info you need, etc
 // ...
 
+#if SORT_BY_MATERIAL
+static int* dev_material_keys = NULL;
+#endif
+
 void InitDataContainer(GuiDataContainer* imGuiData)
 {
     guiData = imGuiData;
@@ -112,6 +152,10 @@ void pathtraceInit(Scene* scene)
 
     // TODO: initialize any extra device memeory you need
 
+#if SORT_BY_MATERIAL
+    cudaMalloc(&dev_material_keys, pixelcount * sizeof(int));
+#endif
+
     checkCUDAError("pathtraceInit");
 }
 
@@ -123,6 +167,10 @@ void pathtraceFree()
     cudaFree(dev_materials);
     cudaFree(dev_intersections);
     // TODO: clean up any extra device memory you created
+
+#if SORT_BY_MATERIAL
+    cudaFree(dev_material_keys);
+#endif
 
     checkCUDAError("pathtraceFree");
 }
@@ -148,9 +196,13 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
         segment.color = glm::vec3(1.0f, 1.0f, 1.0f);
 
         // TODO: implement antialiasing by jittering the ray
+        thrust::default_random_engine rng = makeSeededRandomEngine(iter, index, 0);
+        thrust::uniform_real_distribution<float> uPixel(-0.5, 0.5);
+        float jitter_x = uPixel(rng);
+        float jitter_y = uPixel(rng);
         segment.ray.direction = glm::normalize(cam.view
-            - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f)
-            - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f)
+            - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f + jitter_x)
+            - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f + jitter_y)
         );
 
         segment.pixelIndex = index;
@@ -345,6 +397,25 @@ struct pathExists {
     }
 };
 
+#if SORT_BY_MATERIAL
+// Functor to extract material ID from ShadeableIntersection for sorting
+struct MaterialIdExtractor {
+    __host__ __device__ int operator()(const ShadeableIntersection& intersection) const {
+        // Use material ID as sort key, with a special case for missed rays (t < 0)
+        return (intersection.t > 0.0f) ? intersection.materialId : -1;
+    }
+};
+
+// Kernel to extract material IDs for sorting
+__global__ void extractMaterialIds(int num_paths, ShadeableIntersection* intersections, int* material_keys) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < num_paths) {
+        // Use material ID as sort key, with -1 for missed rays
+        material_keys[idx] = (intersections[idx].t > 0.0f) ? intersections[idx].materialId : -1;
+    }
+}
+#endif
+
 /**
  * Wrapper for the __global__ call that sets up the kernel calls and does a ton
  * of memory management
@@ -434,12 +505,39 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         // TODO: compare between directly shading the path segments and shading
         // path segments that have been reshuffled to be contiguous in memory.
 
-        // shadeFakeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
+#if SORT_BY_MATERIAL
+        // MATERIAL SORTING OPTIMIZATION:
+        // Sort path segments and intersections by material ID to reduce warp divergence.
+        // CRITICAL: Both arrays must be sorted together to maintain paths[i] & intersections[i] correspondence
+        
+        // Extract material IDs to use as sort keys
+        dim3 numBlocksExtract = (num_paths + blockSize1d - 1) / blockSize1d;
+        extractMaterialIds<<<numBlocksExtract, blockSize1d>>>(num_paths, dev_intersections, dev_material_keys);
+        checkCUDAError("extract material IDs");
+        
+        // Create thrust device pointers
+        thrust::device_ptr<int> keys_ptr(dev_material_keys);
+        thrust::device_ptr<PathSegment> paths_ptr(dev_paths);
+        thrust::device_ptr<ShadeableIntersection> intersections_ptr(dev_intersections);
+        
+        // Use zip_iterator to sort both arrays together with the same permutation
+        auto zipped_begin = thrust::make_zip_iterator(thrust::make_tuple(paths_ptr, intersections_ptr));
+        thrust::sort_by_key(thrust::device, keys_ptr, keys_ptr + num_paths, zipped_begin);
+        
+        // Both arrays are now sorted by material ID while maintaining correspondence
+        PathSegment* paths_to_shade = dev_paths;
+        ShadeableIntersection* intersections_to_shade = dev_intersections;
+#else
+        // Use original arrays for shading (no sorting)
+        PathSegment* paths_to_shade = dev_paths;
+        ShadeableIntersection* intersections_to_shade = dev_intersections;
+#endif
+
         shadeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
             iter,
             num_paths,
-            dev_intersections,
-            dev_paths,
+            intersections_to_shade,
+            paths_to_shade,
             dev_materials
         );
 
