@@ -2,6 +2,10 @@
 #include "preview.h"
 #include <cstring>
 
+#include "../imgui/imgui.h"
+#include "../imgui/imgui_impl_glfw.h"
+#include "../imgui/imgui_impl_opengl3.h"
+
 static std::string startTimeString;
 
 // For camera controls
@@ -35,7 +39,6 @@ glm::vec3 cameraPosition;
 glm::vec3 ogLookAt; // for recentering the camera
 
 Scene* scene;
-GuiDataContainer* guiData;
 RenderState* renderState;
 int iteration;
 
@@ -61,15 +64,15 @@ int main(int argc, char** argv)
     // Load scene file
     scene = new Scene(sceneFile);
 
-    //Create Instance for ImGUIData
-    guiData = new GuiDataContainer();
-
     // Set up camera stuff from loaded path tracer settings
     iteration = 0;
     renderState = &scene->state;
     Camera& cam = renderState->camera;
     width = cam.resolution.x;
     height = cam.resolution.y;
+
+    ui_iterations = renderState->iterations;
+    startupIterations = ui_iterations;
 
     glm::vec3 view = cam.view;
     glm::vec3 up = cam.up;
@@ -89,10 +92,6 @@ int main(int argc, char** argv)
 
     // Initialize CUDA and GL components
     init();
-
-    // Initialize ImGui Data
-    InitImguiData(guiData);
-    InitDataContainer(guiData);
 
     // GLFW main loop
     mainLoop();
@@ -128,6 +127,11 @@ void saveImage()
 
 void runCuda()
 {
+    if (lastLoopIterations != ui_iterations) {
+        lastLoopIterations = ui_iterations;
+        camchanged = true;
+    }
+
     if (camchanged)
     {
         iteration = 0;
@@ -152,27 +156,32 @@ void runCuda()
     // Map OpenGL buffer object for writing from CUDA on a single GPU
     // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
 
-    if (iteration == 0)
-    {
+    if (iteration == 0) {
         pathtraceFree();
         pathtraceInit(scene);
     }
 
-    if (iteration < renderState->iterations)
-    {
-        uchar4* pbo_dptr = NULL;
+    uchar4 *pbo_dptr = NULL;
+    cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
+
+    if (iteration < ui_iterations) {
         iteration++;
-        cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
 
         // execute the kernel
         int frame = 0;
-        pathtrace(pbo_dptr, frame, iteration);
-
-        // unmap buffer object
-        cudaGLUnmapBufferObject(pbo);
+        pathtrace(frame, iteration);
     }
-    else
-    {
+
+    if (ui_showGbuffer) {
+        showGBuffer(pbo_dptr);
+    } else {
+        showImage(pbo_dptr, iteration);
+    }
+
+    // unmap buffer object
+    cudaGLUnmapBufferObject(pbo);
+
+    if (ui_saveAndExit) {
         saveImage();
         pathtraceFree();
         cudaDeviceReset();
@@ -205,10 +214,7 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 {
-    if (MouseOverImGuiWindow())
-    {
-        return;
-    }
+    if (ImGui::GetIO().WantCaptureMouse) return;
 
     leftMousePressed = (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS);
     rightMousePressed = (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS);

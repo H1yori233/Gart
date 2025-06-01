@@ -77,42 +77,35 @@ set(sources
     src/utilities.cpp
 )
 
-set(imgui_headers
-    src/ImGui/imconfig.h
-    src/ImGui/imgui.h
-    src/ImGui/imgui_impl_glfw.h
-    src/ImGui/imgui_impl_opengl3.h
-    src/ImGui/imgui_impl_opengl3_loader.h
-    src/ImGui/imgui_internal.h
-    src/ImGui/imstb_rectpack.h
-    src/ImGui/imstb_textedit.h
-    src/ImGui/imstb_truetype.h
-)
-
-set(imgui_sources
-    src/ImGui/imgui.cpp
-    src/ImGui/imgui_demo.cpp
-    src/ImGui/imgui_draw.cpp
-    src/ImGui/imgui_impl_glfw.cpp
-    src/ImGui/imgui_impl_opengl3.cpp
-    src/ImGui/imgui_tables.cpp
-    src/ImGui/imgui_widgets.cpp
-)
+set(imgui
+    imgui/imconfig.h
+    imgui/imgui.cpp
+    imgui/imgui.h
+    imgui/imgui_draw.cpp
+    imgui/imgui_internal.h
+    imgui/imgui_widgets.cpp
+    imgui/imgui_demo.cpp
+    imgui/imgui_impl_glfw.cpp
+    imgui/imgui_impl_glfw.h
+    imgui/imgui_impl_opengl2.cpp
+    imgui/imgui_impl_opengl2.h
+    imgui/imgui_impl_opengl3.cpp
+    imgui/imgui_impl_opengl3.h
+    )
 
 list(SORT headers)
 list(SORT sources)
-list(SORT imgui_headers)
-list(SORT imgui_sources)
+list(SORT imgui)
 
 source_group("Headers" FILES ${headers})
 source_group("Sources" FILES ${sources})
-source_group("ImGui\\Headers" FILES ${imgui_headers})
-source_group("ImGui\\Sources" FILES ${imgui_sources})
+source_group(imgui FILES ${imgui})
+
 
 #add_subdirectory(src/ImGui)
 #add_subdirectory(stream_compaction)  # TODO: uncomment if using your stream compaction
 
-add_executable(${CMAKE_PROJECT_NAME} ${sources} ${headers} ${imgui_sources} ${imgui_headers})
+add_executable(${CMAKE_PROJECT_NAME} ${sources} ${headers} ${imgui})
 set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 if(CMAKE_VERSION VERSION_LESS "3.23.0")
     set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES CUDA_ARCHITECTURES OFF)

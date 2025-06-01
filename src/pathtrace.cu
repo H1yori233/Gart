@@ -126,7 +126,6 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
 }
 
 static Scene* hst_scene = NULL;
-static GuiDataContainer* guiData = NULL;
 static glm::vec3* dev_image = NULL;
 static Geom* dev_geoms = NULL;
 static Material* dev_materials = NULL;
@@ -139,11 +138,6 @@ static GBufferPixel* dev_gBuffer = NULL;
 #if SORT_BY_MATERIAL
 static int* dev_material_keys = NULL;
 #endif
-
-void InitDataContainer(GuiDataContainer* imGuiData)
-{
-    guiData = imGuiData;
-}
 
 void pathtraceInit(Scene* scene)
 {
@@ -457,7 +451,7 @@ __global__ void extractMaterialIds(int num_paths, ShadeableIntersection* interse
  * Wrapper for the __global__ call that sets up the kernel calls and does a ton
  * of memory management
  */
-void pathtrace(uchar4* pbo, int frame, int iter)
+void pathtrace(int frame, int iter) 
 {
     const int traceDepth = hst_scene->state.traceDepth;
     const Camera& cam = hst_scene->state.camera;
@@ -516,12 +510,12 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     // Empty gbuffer
     cudaMemset(dev_gBuffer, 0, pixelcount * sizeof(GBufferPixel));
 
+	// clean shading chunks
+	cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
+
     bool iterationComplete = false;
     while (!iterationComplete)
     {
-        // clean shading chunks
-        cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
-
         // tracing
         dim3 numblocksPathSegmentTracing = (num_paths + blockSize1d - 1) / blockSize1d;
         computeIntersections<<<numblocksPathSegmentTracing, blockSize1d>>> (
@@ -596,11 +590,6 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         if (num_paths <= 0 || depth >= traceDepth) {
             iterationComplete = true;
         }
-
-        if (guiData != NULL)
-        {
-            guiData->TracedDepth = depth;
-        }
     }
 
     // Assemble this iteration and apply it to the image
@@ -614,9 +603,6 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     finalGather<<<numBlocksPixels, blockSize1d>>>(pixelcount, dev_image, dev_paths);
 
     ///////////////////////////////////////////////////////////////////////////
-
-    // Send results to OpenGL buffer for rendering
-    sendImageToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, iter, dev_image);
 
     // Retrieve image from GPU
     cudaMemcpy(hst_scene->state.image.data(), dev_image,
