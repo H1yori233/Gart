@@ -10,13 +10,22 @@
 enum GeomType
 {
     SPHERE,
-    CUBE
+    CUBE,
+    TRIANGLE
 };
 
 struct Ray
 {
     glm::vec3 origin;
     glm::vec3 direction;
+};
+
+struct Triangle
+{
+    glm::vec3 v0, v1, v2; // vertices
+    glm::vec3 n0, n1, n2; // normals at vertices (for smooth shading)
+    glm::vec2 t0, t1, t2; // texture coordinates
+    bool hasVertexNormals; // whether to use vertex normals for smooth shading
 };
 
 struct Geom
@@ -29,6 +38,9 @@ struct Geom
     glm::mat4 transform;
     glm::mat4 inverseTransform;
     glm::mat4 invTranspose;
+    
+    // For triangle geometry
+    Triangle triangle;
 };
 
 struct Material

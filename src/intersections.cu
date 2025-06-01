@@ -91,12 +91,12 @@ __host__ __device__ float sphereIntersectionTest(
     }
     else if (t1 > 0 && t2 > 0)
     {
-        t = min(t1, t2);
+        t = glm::min(t1, t2);
         outside = true;
     }
     else
     {
-        t = max(t1, t2);
+        t = glm::max(t1, t2);
         outside = false;
     }
 
@@ -110,4 +110,80 @@ __host__ __device__ float sphereIntersectionTest(
     }
 
     return glm::length(r.origin - intersectionPoint);
+}
+
+__host__ __device__ float triangleIntersectionTest(
+    Geom triangle_geom,
+    Ray r,
+    glm::vec3 &intersectionPoint,
+    glm::vec3 &normal,
+    bool &outside)
+{
+    // Transform ray to object space
+    glm::vec3 ro = multiplyMV(triangle_geom.inverseTransform, glm::vec4(r.origin, 1.0f));
+    glm::vec3 rd = glm::normalize(multiplyMV(triangle_geom.inverseTransform, glm::vec4(r.direction, 0.0f)));
+
+    const Triangle& tri = triangle_geom.triangle;
+    
+    // Möller–Trumbore intersection algorithm
+    glm::vec3 edge1, edge2, h, s, q;
+    float a, f, u, v;
+    
+    edge1 = tri.v1 - tri.v0;
+    edge2 = tri.v2 - tri.v0;
+    h = glm::cross(rd, edge2);
+    a = glm::dot(edge1, h);
+    
+    if (a > -EPSILON && a < EPSILON)
+        return -1; // Ray is parallel to triangle
+    
+    f = 1.0f / a;
+    s = ro - tri.v0;
+    u = f * glm::dot(s, h);
+    
+    if (u < 0.0f || u > 1.0f)
+        return -1;
+    
+    q = glm::cross(s, edge1);
+    v = f * glm::dot(rd, q);
+    
+    if (v < 0.0f || u + v > 1.0f)
+        return -1;
+    
+    // At this stage we can compute t to find out where the intersection point is on the line
+    float t = f * glm::dot(edge2, q);
+    
+    if (t > EPSILON) // Ray intersection
+    {
+        glm::vec3 objspaceIntersection = ro + rd * t;
+        
+        // Transform intersection point back to world space
+        intersectionPoint = multiplyMV(triangle_geom.transform, glm::vec4(objspaceIntersection, 1.0f));
+        
+        // Calculate normal
+        if (tri.hasVertexNormals)
+        {
+            // Interpolate vertex normals using barycentric coordinates
+            float w = 1.0f - u - v;
+            glm::vec3 interpolatedNormal = w * tri.n0 + u * tri.n1 + v * tri.n2;
+            normal = glm::normalize(multiplyMV(triangle_geom.invTranspose, glm::vec4(interpolatedNormal, 0.0f)));
+        }
+        else
+        {
+            // Use face normal
+            glm::vec3 faceNormal = glm::normalize(glm::cross(edge1, edge2));
+            normal = glm::normalize(multiplyMV(triangle_geom.invTranspose, glm::vec4(faceNormal, 0.0f)));
+        }
+        
+        // Check if ray is coming from outside
+        outside = glm::dot(r.direction, normal) < 0;
+        if (!outside)
+        {
+            normal = -normal;
+        }
+        
+        return glm::length(r.origin - intersectionPoint);
+    }
+    
+    return -1; // No intersection
 }
