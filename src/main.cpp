@@ -11,6 +11,21 @@ static bool middleMousePressed = false;
 static double lastX;
 static double lastY;
 
+// CHECKITOUT: simple UI parameters.
+// Search for any of these across the whole project to see how these are used,
+// or look at the diff for commit 1178307347e32da064dce1ef4c217ce0ca6153a8.
+// For all the gory GUI details, look at commit 5feb60366e03687bfc245579523402221950c9c5.
+int ui_iterations = 0;
+int startupIterations = 0;
+int lastLoopIterations = 0;
+bool ui_showGbuffer = false;
+bool ui_denoise = false;
+int ui_filterSize = 80;
+float ui_colorWeight = 0.45f;
+float ui_normalWeight = 0.35f;
+float ui_positionWeight = 0.2f;
+bool ui_saveAndExit = false;
+
 static bool camchanged = true;
 static float dtheta = 0, dphi = 0;
 static glm::vec3 cammove;

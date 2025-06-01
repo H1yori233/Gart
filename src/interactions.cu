@@ -1,4 +1,5 @@
 #include "interactions.h"
+#include "utilities.h"
 
 __host__ __device__ glm::vec3 calculateRandomDirectionInHemisphere(
     glm::vec3 normal,
