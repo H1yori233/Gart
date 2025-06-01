@@ -3,6 +3,10 @@
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtx/string_cast.hpp>
 #include <unordered_map>
+#include <stb_image.h>
+#include <stb_image_write.h>
+#define TINYGLTF_IMPLEMENTATION
+#include <tiny_gltf.h>
 #include "json.hpp"
 #include "scene.h"
 using json = nlohmann::json;
@@ -15,6 +19,7 @@ Scene::Scene(string filename)
     if (ext == ".json")
     {
         loadFromJSON(filename);
+        cout << "geoms size: " << geoms.size() << endl;
         return;
     }
     else
@@ -116,6 +121,33 @@ void Scene::loadFromJSON(const std::string& jsonName)
                 newGeom.triangle.t2 = glm::vec2(0.5f, 1.0f);
             }
         }
+        else if (type == "gltf")
+        {
+            // Load GLTF model
+            std::string gltfPath = p["PATH"];
+            std::string materialName = p["MATERIAL"];
+            
+            // Calculate transformation matrix if TRANS/ROTAT/SCALE are provided
+            glm::mat4 transform = glm::mat4(1.0f);
+            if (p.contains("TRANS") && p.contains("ROTAT") && p.contains("SCALE"))
+            {
+                const auto& trans = p["TRANS"];
+                const auto& rotat = p["ROTAT"];
+                const auto& scale = p["SCALE"];
+                glm::vec3 translation = glm::vec3(trans[0], trans[1], trans[2]);
+                glm::vec3 rotation = glm::vec3(rotat[0], rotat[1], rotat[2]);
+                glm::vec3 scaling = glm::vec3(scale[0], scale[1], scale[2]);
+                transform = utilityCore::buildTransformationMatrix(translation, rotation, scaling);
+            }
+            
+            if (loadGLTF(gltfPath, materialName, transform)) {
+                std::cout << "Successfully loaded GLTF model: " << gltfPath << std::endl;
+                continue; // Skip the normal geometry processing since GLTF loading adds triangles directly
+            } else {
+                std::cout << "Failed to load GLTF model: " << gltfPath << std::endl;
+                continue;
+            }
+        }
         else
         {
             newGeom.type = SPHERE;
@@ -201,4 +233,207 @@ void Scene::loadFromJSON(const std::string& jsonName)
     int arraylen = camera.resolution.x * camera.resolution.y;
     state.image.resize(arraylen);
     std::fill(state.image.begin(), state.image.end(), glm::vec3());
+}
+
+void Scene::addTriangleFromGLTF(const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2,
+                               const glm::vec3& n0, const glm::vec3& n1, const glm::vec3& n2,
+                               int materialId, const glm::mat4& transform)
+{
+    Geom newGeom;
+    newGeom.type = TRIANGLE;
+    newGeom.materialid = materialId;
+    
+    // Apply transformation to vertices
+    glm::vec4 tv0 = transform * glm::vec4(v0, 1.0f);
+    glm::vec4 tv1 = transform * glm::vec4(v1, 1.0f);
+    glm::vec4 tv2 = transform * glm::vec4(v2, 1.0f);
+    
+    newGeom.triangle.v0 = glm::vec3(tv0);
+    newGeom.triangle.v1 = glm::vec3(tv1);
+    newGeom.triangle.v2 = glm::vec3(tv2);
+    
+    // Apply transformation to normals (using inverse transpose)
+    glm::mat4 normalMatrix = glm::inverseTranspose(transform);
+    glm::vec4 tn0 = normalMatrix * glm::vec4(n0, 0.0f);
+    glm::vec4 tn1 = normalMatrix * glm::vec4(n1, 0.0f);
+    glm::vec4 tn2 = normalMatrix * glm::vec4(n2, 0.0f);
+    
+    newGeom.triangle.n0 = glm::normalize(glm::vec3(tn0));
+    newGeom.triangle.n1 = glm::normalize(glm::vec3(tn1));
+    newGeom.triangle.n2 = glm::normalize(glm::vec3(tn2));
+    newGeom.triangle.hasVertexNormals = true;
+    
+    // Default texture coordinates
+    newGeom.triangle.t0 = glm::vec2(0.0f, 0.0f);
+    newGeom.triangle.t1 = glm::vec2(1.0f, 0.0f);
+    newGeom.triangle.t2 = glm::vec2(0.5f, 1.0f);
+    
+    // Set up transformation matrices
+    newGeom.translation = glm::vec3(0.0f);
+    newGeom.rotation = glm::vec3(0.0f);
+    newGeom.scale = glm::vec3(1.0f);
+    newGeom.transform = glm::mat4(1.0f);
+    newGeom.inverseTransform = glm::mat4(1.0f);
+    newGeom.invTranspose = glm::mat4(1.0f);
+    
+    geoms.push_back(newGeom);
+}
+
+bool Scene::loadGLTF(const std::string& gltfPath, const std::string& materialName, const glm::mat4& transform)
+{
+    tinygltf::Model model;
+    tinygltf::TinyGLTF loader;
+    std::string err;
+    std::string warn;
+    
+    bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, gltfPath);
+    
+    if (!warn.empty()) {
+        std::cout << "GLTF Warning: " << warn << std::endl;
+    }
+    
+    if (!err.empty()) {
+        std::cout << "GLTF Error: " << err << std::endl;
+        return false;
+    }
+    
+    if (!ret) {
+        std::cout << "Failed to parse GLTF file: " << gltfPath << std::endl;
+        return false;
+    }
+    
+    // Find material ID by name
+    int materialId = -1;
+    for (size_t i = 0; i < materials.size(); ++i) {
+        // We need to store material names somehow, for now use index 0 as default
+        if (i == 0) { // Temporary: use first material
+            materialId = i;
+            break;
+        }
+    }
+    
+    if (materialId == -1) {
+        std::cout << "Material '" << materialName << "' not found, using default" << std::endl;
+        materialId = 0; // Use first material as fallback
+    }
+    
+    // Process all meshes
+    for (const auto& mesh : model.meshes) {
+        for (const auto& primitive : mesh.primitives) {
+            if (primitive.mode != TINYGLTF_MODE_TRIANGLES) {
+                std::cout << "Skipping non-triangle primitive" << std::endl;
+                continue;
+            }
+            
+            // Get position accessor
+            auto positionIt = primitive.attributes.find("POSITION");
+            if (positionIt == primitive.attributes.end()) {
+                std::cout << "No POSITION attribute found" << std::endl;
+                continue;
+            }
+            
+            // Get normal accessor
+            auto normalIt = primitive.attributes.find("NORMAL");
+            bool hasNormals = (normalIt != primitive.attributes.end());
+            
+            const tinygltf::Accessor& posAccessor = model.accessors[positionIt->second];
+            const tinygltf::BufferView& posBufferView = model.bufferViews[posAccessor.bufferView];
+            const tinygltf::Buffer& posBuffer = model.buffers[posBufferView.buffer];
+            
+            const float* positions = reinterpret_cast<const float*>(&posBuffer.data[posBufferView.byteOffset + posAccessor.byteOffset]);
+            
+            const float* normals = nullptr;
+            if (hasNormals) {
+                const tinygltf::Accessor& normalAccessor = model.accessors[normalIt->second];
+                const tinygltf::BufferView& normalBufferView = model.bufferViews[normalAccessor.bufferView];
+                const tinygltf::Buffer& normalBuffer = model.buffers[normalBufferView.buffer];
+                normals = reinterpret_cast<const float*>(&normalBuffer.data[normalBufferView.byteOffset + normalAccessor.byteOffset]);
+            }
+            
+            // Get indices if available
+            if (primitive.indices >= 0) {
+                const tinygltf::Accessor& indexAccessor = model.accessors[primitive.indices];
+                const tinygltf::BufferView& indexBufferView = model.bufferViews[indexAccessor.bufferView];
+                const tinygltf::Buffer& indexBuffer = model.buffers[indexBufferView.buffer];
+                
+                // Process triangles using indices
+                if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) {
+                    const uint16_t* indices = reinterpret_cast<const uint16_t*>(&indexBuffer.data[indexBufferView.byteOffset + indexAccessor.byteOffset]);
+                    
+                    for (size_t i = 0; i < indexAccessor.count; i += 3) {
+                        uint16_t i0 = indices[i];
+                        uint16_t i1 = indices[i + 1];
+                        uint16_t i2 = indices[i + 2];
+                        
+                        glm::vec3 v0(positions[i0 * 3], positions[i0 * 3 + 1], positions[i0 * 3 + 2]);
+                        glm::vec3 v1(positions[i1 * 3], positions[i1 * 3 + 1], positions[i1 * 3 + 2]);
+                        glm::vec3 v2(positions[i2 * 3], positions[i2 * 3 + 1], positions[i2 * 3 + 2]);
+                        
+                        glm::vec3 n0, n1, n2;
+                        if (hasNormals) {
+                            n0 = glm::vec3(normals[i0 * 3], normals[i0 * 3 + 1], normals[i0 * 3 + 2]);
+                            n1 = glm::vec3(normals[i1 * 3], normals[i1 * 3 + 1], normals[i1 * 3 + 2]);
+                            n2 = glm::vec3(normals[i2 * 3], normals[i2 * 3 + 1], normals[i2 * 3 + 2]);
+                        } else {
+                            // Calculate face normal
+                            glm::vec3 faceNormal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+                            n0 = n1 = n2 = faceNormal;
+                        }
+                        
+                        addTriangleFromGLTF(v0, v1, v2, n0, n1, n2, materialId, transform);
+                    }
+                }
+                else if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT) {
+                    const uint32_t* indices = reinterpret_cast<const uint32_t*>(&indexBuffer.data[indexBufferView.byteOffset + indexAccessor.byteOffset]);
+                    
+                    for (size_t i = 0; i < indexAccessor.count; i += 3) {
+                        uint32_t i0 = indices[i];
+                        uint32_t i1 = indices[i + 1];
+                        uint32_t i2 = indices[i + 2];
+                        
+                        glm::vec3 v0(positions[i0 * 3], positions[i0 * 3 + 1], positions[i0 * 3 + 2]);
+                        glm::vec3 v1(positions[i1 * 3], positions[i1 * 3 + 1], positions[i1 * 3 + 2]);
+                        glm::vec3 v2(positions[i2 * 3], positions[i2 * 3 + 1], positions[i2 * 3 + 2]);
+                        
+                        glm::vec3 n0, n1, n2;
+                        if (hasNormals) {
+                            n0 = glm::vec3(normals[i0 * 3], normals[i0 * 3 + 1], normals[i0 * 3 + 2]);
+                            n1 = glm::vec3(normals[i1 * 3], normals[i1 * 3 + 1], normals[i1 * 3 + 2]);
+                            n2 = glm::vec3(normals[i2 * 3], normals[i2 * 3 + 1], normals[i2 * 3 + 2]);
+                        } else {
+                            // Calculate face normal
+                            glm::vec3 faceNormal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+                            n0 = n1 = n2 = faceNormal;
+                        }
+                        
+                        addTriangleFromGLTF(v0, v1, v2, n0, n1, n2, materialId, transform);
+                    }
+                }
+            }
+            else {
+                // No indices, process vertices directly
+                for (size_t i = 0; i < posAccessor.count; i += 3) {
+                    glm::vec3 v0(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+                    glm::vec3 v1(positions[(i + 1) * 3], positions[(i + 1) * 3 + 1], positions[(i + 1) * 3 + 2]);
+                    glm::vec3 v2(positions[(i + 2) * 3], positions[(i + 2) * 3 + 1], positions[(i + 2) * 3 + 2]);
+                    
+                    glm::vec3 n0, n1, n2;
+                    if (hasNormals) {
+                        n0 = glm::vec3(normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2]);
+                        n1 = glm::vec3(normals[(i + 1) * 3], normals[(i + 1) * 3 + 1], normals[(i + 1) * 3 + 2]);
+                        n2 = glm::vec3(normals[(i + 2) * 3], normals[(i + 2) * 3 + 1], normals[(i + 2) * 3 + 2]);
+                    } else {
+                        // Calculate face normal
+                        glm::vec3 faceNormal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+                        n0 = n1 = n2 = faceNormal;
+                    }
+                    
+                    addTriangleFromGLTF(v0, v1, v2, n0, n1, n2, materialId, transform);
+                }
+            }
+        }
+    }
+    
+    std::cout << "Successfully loaded GLTF: " << gltfPath << " with " << model.meshes.size() << " meshes" << std::endl;
+    return true;
 }
