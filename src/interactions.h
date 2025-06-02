@@ -3,6 +3,11 @@
 #include "intersections.h"
 #include <glm/glm.hpp>
 #include <thrust/random.h>
+
+__host__ __device__ inline float luminance(const glm::vec3& c) {
+    return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;
+}
+
 // CHECKITOUT
 /**
  * Computes a cosine-weighted random direction in a hemisphere.

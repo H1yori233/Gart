@@ -29,6 +29,7 @@ float ui_colorWeight = 0.45f;
 float ui_normalWeight = 0.35f;
 float ui_positionWeight = 0.2f;
 bool ui_saveAndExit = false;
+GBufferPixelType ui_gbufferType = GBUFFER_PIXEL_TYPE_TIME;
 
 static bool camchanged = true;
 static float dtheta = 0, dphi = 0;
@@ -170,10 +171,18 @@ void runCuda()
         // execute the kernel
         int frame = 0;
         pathtrace(frame, iteration);
+
+        if (ui_denoise && iteration > 1) {
+            applyDenoising(
+                width, height, 
+                ui_filterSize, ui_colorWeight, 
+                ui_normalWeight, ui_positionWeight
+            );
+        }
     }
 
     if (ui_showGbuffer) {
-        showGBuffer(pbo_dptr);
+        showGBuffer(pbo_dptr, ui_gbufferType);
     } else {
         showImage(pbo_dptr, iteration);
     }

@@ -62,5 +62,4 @@ __host__ __device__ void scatterRay(
 
     pathSegment.ray.origin = intersect + .0001f * normal; // prevent self-intersection
     pathSegment.color *= m.color;
-    pathSegment.remainingBounces--;
 }

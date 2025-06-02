@@ -222,6 +222,13 @@ void drawGui(int windowWidth, int windowHeight) {
     ImGui::Separator();
 
     ImGui::Checkbox("Show GBuffer", &ui_showGbuffer);
+    int gbufferTypeInt = (int)ui_gbufferType;
+    ImGui::RadioButton("Time", &gbufferTypeInt, GBUFFER_PIXEL_TYPE_TIME);
+    ImGui::SameLine(0, 20);
+    ImGui::RadioButton("Normal", &gbufferTypeInt, GBUFFER_PIXEL_TYPE_NORMAL);
+    ImGui::SameLine(0, 20);
+    ImGui::RadioButton("Position", &gbufferTypeInt, GBUFFER_PIXEL_TYPE_POSITION);
+    ui_gbufferType = (GBufferPixelType)gbufferTypeInt;
 
     ImGui::Separator();
 
