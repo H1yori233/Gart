@@ -5,6 +5,7 @@
 #include "../imgui/imgui.h"
 #include "../imgui/imgui_impl_glfw.h"
 #include "../imgui/imgui_impl_opengl3.h"
+#include "denoise.h"
 
 static std::string startTimeString;
 
@@ -174,15 +175,26 @@ void runCuda()
 
         if (ui_denoise && iteration > 1) {
             applyDenoising(
-                width, height, 
+                renderState->camera,
                 ui_filterSize, ui_colorWeight, 
-                ui_normalWeight, ui_positionWeight
+                ui_normalWeight, ui_positionWeight,
+#if OPTIMIZED_GBUFFER
+                getDevViewMatrix(),
+#endif
+                getDevImage(), getDevGBuffer()
             );
         }
     }
 
     if (ui_showGbuffer) {
-        showGBuffer(pbo_dptr, ui_gbufferType);
+        showGBuffer(
+            pbo_dptr, ui_gbufferType, 
+            renderState->camera,
+#if OPTIMIZED_GBUFFER
+            getDevViewMatrix(),
+#endif
+            getDevGBuffer()
+        );
     } else {
         showImage(pbo_dptr, iteration);
     }

@@ -6,6 +6,11 @@
 #include "glm/glm.hpp"
 
 #define BACKGROUND_COLOR (glm::vec3(0.0f))
+#define ERRORCHECK 1
+#define SORT_BY_MATERIAL 1  // Toggle for material-based sorting optimization
+#define RUSSIAN_ROULETTE 1  // Toggle for Russian Roulette
+#define RR_DEPTH 5
+#define OPTIMIZED_GBUFFER 1
 
 enum GeomType
 {
@@ -91,21 +96,25 @@ struct PathSegment
 // 2) BSDF evaluation: generate a new ray
 struct ShadeableIntersection
 {
-  float t;
-  glm::vec3 surfaceNormal;
-  int materialId;
+    float t;
+    glm::vec3 surfaceNormal;
+    int materialId;
 };
 
 // CHECKITOUT - a simple struct for storing scene geometry information per-pixel.
 // What information might be helpful for guiding a denoising filter?
 struct GBufferPixel {
-  float t;
-  glm::vec3 position;
-  glm::vec3 normal;
+    float t;
+#if OPTIMIZED_GBUFFER
+    glm::vec3 pack;
+#else
+    glm::vec3 position;
+    glm::vec3 normal;
+#endif
 };
 
 enum GBufferPixelType {
-  GBUFFER_PIXEL_TYPE_TIME,
-  GBUFFER_PIXEL_TYPE_NORMAL,
-  GBUFFER_PIXEL_TYPE_POSITION,
+    GBUFFER_PIXEL_TYPE_TIME,
+    GBUFFER_PIXEL_TYPE_NORMAL,
+    GBUFFER_PIXEL_TYPE_POSITION,
 };

@@ -2,10 +2,16 @@
 
 #include <vector>
 #include "scene.h"
+#include "sceneStructs.h"
 
 void pathtraceInit(Scene *scene);
 void pathtraceFree();
 void pathtrace(int frame, int iteration);
-void showGBuffer(uchar4 *pbo, GBufferPixelType type);
 void showImage(uchar4 *pbo, int iter);
-void applyDenoising(int width, int height, int filterSize, float colorWeight, float normalWeight, float positionWeight);
+
+// Getter functions for device variables needed by denoising
+glm::vec3* getDevImage();
+GBufferPixel* getDevGBuffer();
+#if OPTIMIZED_GBUFFER
+glm::mat4 getDevViewMatrix();
+#endif

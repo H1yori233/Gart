@@ -8,6 +8,7 @@
 #include <glm/gtc/matrix_inverse.hpp>
 #include <iostream>
 #include <cstdio>
+#include <cuda_runtime.h>
 
 #include "utilities.h"
 
@@ -137,4 +138,28 @@ std::istream& utilityCore::safeGetline(std::istream& is, std::string& t)
                 t += (char)c;
         }
     }
+}
+
+// CUDA error checking function
+void checkCUDAErrorFn(const char* msg, const char* file, int line)
+{
+#if ERRORCHECK
+    cudaDeviceSynchronize();
+    cudaError_t err = cudaGetLastError();
+    if (cudaSuccess == err)
+    {
+        return;
+    }
+
+    fprintf(stderr, "CUDA error");
+    if (file)
+    {
+        fprintf(stderr, " (%s:%d)", file, line);
+    }
+    fprintf(stderr, ": %s: %s\n", msg, cudaGetErrorString(err));
+#ifdef _WIN32
+    getchar();
+#endif // _WIN32
+    exit(EXIT_FAILURE);
+#endif // ERRORCHECK
 }
