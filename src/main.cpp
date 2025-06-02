@@ -107,6 +107,13 @@ void saveImage()
     // output image file
     Image img(width, height);
 
+    if (ui_denoise && iteration > 1) {
+        cudaMemcpy(renderState->image.data(), getDevImage(),
+                   width * height * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
+        checkCUDAError("copy denoised image for saving");
+    }
+    
+
     for (int x = 0; x < width; x++)
     {
         for (int y = 0; y < height; y++)

@@ -156,14 +156,6 @@ __global__ void generateGBuffer_kernel (
     }
 }
 
-__device__ constexpr float kernel[] = {
-    0.0039f, 0.0156f, 0.0234f, 0.0156f, 0.0039f,
-    0.0156f, 0.0625f, 0.0938f, 0.0625f, 0.0156f,
-    0.0234f, 0.0938f, 0.1406f, 0.0938f, 0.0234f,
-    0.0156f, 0.0625f, 0.0938f, 0.0625f, 0.0156f,
-    0.0039f, 0.0156f, 0.0234f, 0.0156f, 0.0039f
-};
-
 __global__ void atrous(
     int num_paths,
     glm::vec3* input_image,
@@ -181,6 +173,7 @@ __global__ void atrous(
     {
         int x = idx % resolution.x;
         int y = idx / resolution.x;
+        float h[5] = { 1/16.f, 1/4.f, 3/8.f, 1/4.f, 1/16.f };
 
         glm::vec3 cval = input_image[idx];
 #if OPTIMIZED_GBUFFER
@@ -225,16 +218,14 @@ __global__ void atrous(
                 float c_w = fminf(exp(-(dist2) / c_phi), 1.0);
                 
                 t = nval - ntmp;
-                dist2 = dot(t, t);
+                dist2 = fmaxf(dot(t, t) / (stepwidth * stepwidth), 0.0f);
                 float n_w = fminf(exp(-(dist2) / n_phi), 1.0);
 
                 t = pval - ptmp;
                 dist2 = dot(t, t);
                 float p_w = fminf(exp(-(dist2) / p_phi), 1.0);
 
-                int kernel_index = dx + 2 + (dy + 2) * 5;
-                float kernel_weight = kernel[kernel_index];
-
+                float kernel_weight = h[dx + 2] * h[dy + 2];
                 float weight = c_w * n_w * p_w * kernel_weight;
                 sum += ctmp * weight;
                 cum_w += weight;
@@ -359,4 +350,4 @@ void applyDenoising(Camera cam, int filterSize, float c_phi,
         cudaMemcpy(dev_image, input, pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
         checkCUDAError("copy final denoised result");
     }
-} 
+}
