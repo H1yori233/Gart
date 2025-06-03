@@ -19,11 +19,17 @@ private:
     void addTriangleFromGLTF(const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2,
                             const glm::vec3& n0, const glm::vec3& n1, const glm::vec3& n2,
                             int materialId, const glm::mat4& transform = glm::mat4(1.0f));
+    
+    void buildLights();
+    float calculateGeomArea(const Geom& geom) const;
+
 public:
     Scene(string filename);
     ~Scene();
 
     std::vector<Geom> geoms;
+    std::vector<LightInfo> lightInfos;
+    float totalLightPower;
     std::vector<Material> materials;
     RenderState state;
 };

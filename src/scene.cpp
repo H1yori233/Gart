@@ -11,6 +11,10 @@
 #include "scene.h"
 using json = nlohmann::json;
 
+__host__ __device__ inline float luminance(const glm::vec3& c) {
+    return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;
+}
+
 Scene::Scene(string filename)
 {
     cout << "Reading scene from " << filename << " ..." << endl;
@@ -20,6 +24,10 @@ Scene::Scene(string filename)
     {
         loadFromJSON(filename);
         cout << "geoms size: " << geoms.size() << endl;
+
+        buildLights();
+        cout << "lightInfos size: " << lightInfos.size() << 
+                ", totalLightPower: " << totalLightPower << endl;
         return;
     }
     else
@@ -27,6 +35,16 @@ Scene::Scene(string filename)
         cout << "Couldn't read from " << filename << endl;
         exit(-1);
     }
+}
+
+IntegratorType stringToIntegratorType(const std::string& str) {
+    for (int i = 0; i < INTEGRATOR_COUNT; i++) {
+        if (str == INTEGRATOR_NAMES[i]) {
+            return static_cast<IntegratorType>(i);
+        }
+    }
+    std::cout << "Warning: Unknown integrator type '" << str << "', using default (nee)" << std::endl;
+    return INTEGRATOR_NEE;
 }
 
 void Scene::loadFromJSON(const std::string& jsonName)
@@ -201,6 +219,7 @@ void Scene::loadFromJSON(const std::string& jsonName)
 
         geoms.push_back(newGeom);
     }
+    
     const auto& cameraData = data["Camera"];
     Camera& camera = state.camera;
     RenderState& state = this->state;
@@ -210,6 +229,15 @@ void Scene::loadFromJSON(const std::string& jsonName)
     state.iterations = cameraData["ITERATIONS"];
     state.traceDepth = cameraData["DEPTH"];
     state.imageName = cameraData["FILE"];
+
+    if (cameraData.contains("INTEGRATOR")) {
+        std::string integratorStr = cameraData["INTEGRATOR"];
+        state.integrator = stringToIntegratorType(integratorStr);
+    } else {
+        state.integrator = INTEGRATOR_NEE; // default
+    }
+    std::cout << "Using integrator: " << INTEGRATOR_NAMES[state.integrator] << std::endl;
+    
     const auto& pos = cameraData["EYE"];
     const auto& lookat = cameraData["LOOKAT"];
     const auto& up = cameraData["UP"];
@@ -436,4 +464,82 @@ bool Scene::loadGLTF(const std::string& gltfPath, const std::string& materialNam
     
     std::cout << "Successfully loaded GLTF: " << gltfPath << " with " << model.meshes.size() << " meshes" << std::endl;
     return true;
+}
+
+void Scene::buildLights() {
+    lightInfos.clear();
+    totalLightPower = 0.0f;
+    for (size_t i = 0; i < geoms.size(); ++i) {
+        const Material& mat = materials[geoms[i].materialid];
+        if (mat.emittance > 0.0f) {
+            LightInfo lightInfo;
+            lightInfo.geomid = i;
+            lightInfo.emission = mat.color * mat.emittance;
+            lightInfo.area = calculateGeomArea(geoms[i]);
+            float luminance_weight = luminance(lightInfo.emission);
+            lightInfo.power = luminance_weight * lightInfo.area;
+
+            lightInfos.push_back(lightInfo);
+            totalLightPower += lightInfo.power;
+            cout << "Found light: geom_id=" << i 
+                 << ", emission=(" << lightInfo.emission.x << "," << lightInfo.emission.y << "," << lightInfo.emission.z << ")"
+                 << ", area=" << lightInfo.area 
+                 << ", power=" << lightInfo.power << endl;
+        }
+    }
+}
+
+float Scene::calculateGeomArea(const Geom& geom) const {
+    switch (geom.type) {
+        case SPHERE: {
+            glm::vec3 scale_vec = glm::vec3(
+                glm::length(glm::vec3(geom.transform[0])),
+                glm::length(glm::vec3(geom.transform[1])),
+                glm::length(glm::vec3(geom.transform[2]))
+            );
+            float radius = (scale_vec.x + scale_vec.y + scale_vec.z) / 3.0f; // avg
+            return 4 * PI * radius * radius;
+        }
+
+        case CUBE: {
+            glm::vec3 scale_vec = glm::vec3(
+                glm::length(glm::vec3(geom.transform[0])),
+                glm::length(glm::vec3(geom.transform[1])),
+                glm::length(glm::vec3(geom.transform[2]))
+            );
+
+            // plane light or not?
+            float min_dim = glm::min(scale_vec.x, glm::min(scale_vec.y, scale_vec.z));
+            float max_dim = glm::max(scale_vec.x, glm::max(scale_vec.y, scale_vec.z));
+            float ratio = min_dim / max_dim;
+
+            if (ratio < 0.1f) {
+                if (scale_vec.x == min_dim) {
+                    return scale_vec.y * scale_vec.z;
+                } else if (scale_vec.y == min_dim) {
+                    return scale_vec.x * scale_vec.z;
+                } else {
+                    return scale_vec.x * scale_vec.y;
+                }
+            } else {
+                float total_area = 2.0f * (scale_vec.x * scale_vec.y + 
+                                           scale_vec.y * scale_vec.z + 
+                                           scale_vec.x * scale_vec.z);
+                return total_area;
+            }
+        }
+        
+        case TRIANGLE: {
+            glm::vec3 v0 = geom.triangle.v0;
+            glm::vec3 v1 = geom.triangle.v1;
+            glm::vec3 v2 = geom.triangle.v2;
+            glm::vec3 edge1 = v1 - v0;
+            glm::vec3 edge2 = v2 - v0;
+            return 0.5f * glm::length(glm::cross(edge1, edge2));
+        }
+
+        default:
+            cout << "Warning: Unknown geometry type for area calculation, using default area 1.0" << endl;
+            return 1.0f;
+    }
 }

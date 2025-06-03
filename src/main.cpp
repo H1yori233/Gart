@@ -112,7 +112,6 @@ void saveImage()
                    width * height * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
         checkCUDAError("copy denoised image for saving");
     }
-    
 
     for (int x = 0; x < width; x++)
     {
@@ -126,7 +125,7 @@ void saveImage()
 
     std::string filename = renderState->imageName;
     std::ostringstream ss;
-    ss << filename << "." << startTimeString << "." << samples << "samp";
+    ss << filename << "." << startTimeString << "." << samples << "samp" << "." << INTEGRATOR_NAMES[renderState->integrator];
     filename = ss.str();
 
     // CHECKITOUT

@@ -102,6 +102,10 @@ static glm::mat4 dev_viewMatrix = glm::mat4(1.0f);
 static int* dev_material_keys = NULL;
 #endif
 
+static LightInfo* dev_lightInfos = NULL;
+
+// ------------------------------------------------------------
+
 void pathtraceInit(Scene* scene)
 {
     hst_scene = scene;
@@ -128,10 +132,12 @@ void pathtraceInit(Scene* scene)
     // TODO: initialize any extra device memeory you need
 
     denoiseInit(pixelcount);
-
 #if SORT_BY_MATERIAL
     cudaMalloc(&dev_material_keys, pixelcount * sizeof(int));
 #endif
+    int num_lights = scene->lightInfos.size();
+    cudaMalloc(&dev_lightInfos, num_lights * sizeof(LightInfo));
+    cudaMemcpy(dev_lightInfos, scene->lightInfos.data(), num_lights * sizeof(LightInfo), cudaMemcpyHostToDevice);
 
     checkCUDAError("pathtraceInit");
 }
@@ -147,10 +153,10 @@ void pathtraceFree()
     // TODO: clean up any extra device memory you created
 
     denoiseFree();
-
 #if SORT_BY_MATERIAL
     cudaFree(dev_material_keys);
 #endif
+    cudaFree(dev_lightInfos);
 
     checkCUDAError("pathtraceFree");
 }
@@ -263,6 +269,8 @@ __global__ void computeIntersections(
     }
 }
 
+// ------------------------------------------------------------
+
 // LOOK: "fake" shader demonstrating what you might do with the info in
 // a ShadeableIntersection, as well as how to use thrust's random number
 // generator. Observe that since the thrust random number generator basically
@@ -373,6 +381,147 @@ __global__ void shadeMaterial(
             // Lots of renderers use 4 channel color, RGBA, where A = alpha, often
             // used for opacity, in which case they can indicate "no opacity".
             // This can be useful for post-processing and image compositing.
+        }
+        else {
+            pathSegments[idx].color = glm::vec3(0.0f);
+            pathSegments[idx].remainingBounces = 0;
+        }
+    }
+}
+
+__global__ void shadeNEE(
+    int iter,
+    int num_paths,
+    ShadeableIntersection* shadeableIntersections,
+    PathSegment* pathSegments,
+    Material* materials,
+    Geom* geoms,
+    int geoms_size,
+    LightInfo* lightInfos,
+    int num_lights,
+    float total_light_power,
+    int depth)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < num_paths)
+    {
+        ShadeableIntersection intersection = shadeableIntersections[idx];
+        if (intersection.t > 0.0f) // if the intersection exists...
+        {
+          // Set up the RNG
+            thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, 0);
+            thrust::uniform_real_distribution<float> u01(0, 1);
+
+            Material material = materials[intersection.materialId];
+            glm::vec3 materialColor = material.color;
+
+            // If the material indicates that the object was a light, "light" the ray
+            if (material.emittance > 0.0f) {
+                pathSegments[idx].color *= (materialColor * material.emittance);
+                pathSegments[idx].remainingBounces = 0;
+                return;
+            }
+
+            // Calculate intersection point and normal
+            glm::vec3 intersect = getPointOnRay(pathSegments[idx].ray, intersection.t);
+            glm::vec3 normal = intersection.surfaceNormal;
+            glm::vec3 wi = -pathSegments[idx].ray.direction; // incident direction
+
+            glm::vec3 totalRadiance = glm::vec3(0.0f);
+            
+            // Light Sampling
+            float selectionPdf;
+            int lightIdx = sampleLight(lightInfos, num_lights, total_light_power, 
+                                       rng, selectionPdf);
+            if (lightIdx >= 0 && selectionPdf > 0.0f) {
+                // Sample a point on the light
+                int geomId = lightInfos[lightIdx].geomid;
+                Geom& lightGeom = geoms[geomId];
+                glm::vec3 lightNormal;
+                float areaPdf;
+                glm::vec3 lightPoint = samplePointOnGeom(lightGeom, intersect, rng, lightNormal, areaPdf);
+
+                // Calculate direction and distance to light
+                glm::vec3 lightDir = lightPoint - intersect;
+                float lightDistance = glm::length(lightDir);
+                lightDir /= lightDistance; // normalize
+
+                // Shadow test
+                Ray shadowRay;
+                shadowRay.origin = intersect + 0.001f * normal; // offset to prevent self-intersection
+                shadowRay.direction = lightDir;
+                
+                bool inShadow = shadowTest(shadowRay, geoms, geoms_size, lightDistance);
+                if (!inShadow) {
+                    // Calculate geometry terms
+                    float cosTheta_light = fmaxf(0.0f, -glm::dot(lightDir, lightNormal));
+                    float cosTheta_surface = fmaxf(0.0f, glm::dot(lightDir, normal));
+                    
+                    if (cosTheta_light > 0.0f && cosTheta_surface > 0.0f) {
+                        float geometryTerm = cosTheta_light * cosTheta_surface / (lightDistance * lightDistance);
+                        
+                        // Evaluate BSDF
+                        glm::vec3 bsdfValue = evaluateBSDF(material, wi, lightDir, normal);
+                        
+                        // Light emission
+                        glm::vec3 emission = lightInfos[lightIdx].emission;
+                        
+                        // Calculate MIS weights
+                        float p1 = selectionPdf * areaPdf; // light sampling pdf
+                        float p2 = pdfBSDF(material, wi, lightDir, normal) * geometryTerm / cosTheta_surface; // BSDF sampling pdf converted to area measure
+                        
+                        float w1 = (p1 * p1) / (p1 * p1 + p2 * p2); // MIS weight
+                        
+                        if (p1 > 0.0f) {
+                            glm::vec3 directLight = w1 * geometryTerm * bsdfValue * emission / p1;
+                            totalRadiance += directLight;
+                        }
+                    }
+                }
+            }
+
+            // BSDF Sampling
+            glm::vec3 wo; // outgoing direction
+            float bsdfPdf;
+            glm::vec3 bsdfValue = sampleBSDF(material, wi, normal, rng, wo, bsdfPdf);
+            
+            if (bsdfPdf > 0.0f) {
+                // Update ray
+                pathSegments[idx].ray.origin = intersect + 0.001f * normal;
+                pathSegments[idx].ray.direction = wo;
+                
+                // Calculate throughput
+                if(material.hasReflective > 0.0f) {
+                    pathSegments[idx].color *= bsdfValue;
+                } else {
+                    float cosTheta = fmaxf(0.0f, glm::dot(wo, normal));
+                    pathSegments[idx].color *= bsdfValue * cosTheta / bsdfPdf;
+
+                    // Add direct lighting contribution
+                    pathSegments[idx].color += totalRadiance;
+                }
+            } else {
+                pathSegments[idx].remainingBounces = 0;
+            }
+
+            // Russian Roulette termination
+#if RUSSIAN_ROULETTE
+            if(pathSegments[idx].remainingBounces > 0 && depth > RR_DEPTH) {
+                float throughput = luminance(pathSegments[idx].color);
+                float prob = fminf(0.95f, fmaxf(0.05f, throughput));
+    
+                if(u01(rng) < prob) {
+                    pathSegments[idx].color /= prob;
+                    pathSegments[idx].remainingBounces--;
+                } else {
+                    pathSegments[idx].remainingBounces = 0;
+                }
+            } else {
+                pathSegments[idx].remainingBounces--;
+            }
+#else
+            pathSegments[idx].remainingBounces--;
+#endif
         }
         else {
             pathSegments[idx].color = glm::vec3(0.0f);
@@ -554,14 +703,47 @@ void pathtrace(int frame, int iter)
         ShadeableIntersection* intersections_to_shade = dev_intersections;
 #endif
 
-        shadeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
-            iter,
-            num_paths,
-            intersections_to_shade,
-            paths_to_shade,
-            dev_materials,
-            depth
-        );
+        switch (hst_scene->state.integrator) {
+            case INTEGRATOR_FAKE:
+                shadeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
+                    iter,
+                    num_paths,
+                    intersections_to_shade,
+                    paths_to_shade,
+                    dev_materials,
+                    depth
+                );
+                break;
+            
+            case INTEGRATOR_NAIVE:
+                shadeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
+                    iter,
+                    num_paths,
+                    intersections_to_shade,
+                    paths_to_shade,
+                    dev_materials,
+                    depth
+                );
+                break;
+                
+            case INTEGRATOR_NEE:
+            default:
+                shadeNEE<<<numblocksPathSegmentTracing, blockSize1d>>>(
+                    iter,
+                    num_paths,
+                    intersections_to_shade,
+                    paths_to_shade,
+                    dev_materials,
+                    dev_geoms,
+                    hst_scene->geoms.size(),
+                    dev_lightInfos,
+                    hst_scene->lightInfos.size(),
+                    hst_scene->totalLightPower,
+                    depth
+                );
+                break;
+        }
+        checkCUDAError("shade material");
 
         dev_path_end = thrust::partition(thrust::device, dev_paths, dev_path_end, pathExists());
         num_paths = dev_path_end - dev_paths;

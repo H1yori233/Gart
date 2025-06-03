@@ -48,3 +48,48 @@ __host__ __device__ void scatterRay(
     glm::vec3 normal,
     const Material& m,
     thrust::default_random_engine& rng);
+
+/**
+ */
+__host__ __device__ int sampleLight(
+    const LightInfo* lightInfos,
+    int numLights,
+    float totalPower,
+    thrust::default_random_engine& rng,
+    float& selectionPdf);
+
+/**
+ */
+__host__ __device__ glm::vec3 samplePointOnGeom(
+    const Geom& geom,
+    glm::vec3 shadingPoint,
+    thrust::default_random_engine& rng,
+    glm::vec3& lightNormal,
+    float& areaPdf);
+
+__device__ 
+bool shadowTest(Ray ray, Geom* geoms, int geoms_size, float max_distance);
+
+/**
+ */
+__host__ __device__ glm::vec3 sampleBSDF(
+    const Material& material,
+    glm::vec3 wi,
+    glm::vec3 normal,
+    thrust::default_random_engine& rng,
+    glm::vec3& wo,
+    float& pdf);
+    
+__host__ __device__ glm::vec3 evaluateBSDF(
+    const Material& material,
+    glm::vec3 wi,
+    glm::vec3 wo, 
+    glm::vec3 normal);
+
+/**
+ */
+__host__ __device__ float pdfBSDF(
+    const Material& material,
+    glm::vec3 wi,
+    glm::vec3 wo,
+    glm::vec3 normal);

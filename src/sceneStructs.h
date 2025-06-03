@@ -12,6 +12,19 @@
 #define RR_DEPTH 5
 #define OPTIMIZED_GBUFFER 1
 
+enum IntegratorType {
+    INTEGRATOR_FAKE = 0,
+    INTEGRATOR_NAIVE = 1,
+    INTEGRATOR_NEE = 2,
+    INTEGRATOR_COUNT  // for array size
+};
+
+static const char* INTEGRATOR_NAMES[INTEGRATOR_COUNT] = {
+    "fake",
+    "naive", 
+    "nee"
+};
+
 enum GeomType
 {
     SPHERE,
@@ -48,6 +61,13 @@ struct Geom
     Triangle triangle;
 };
 
+struct LightInfo {
+    int geomid;
+    float power;
+    float area;
+    glm::vec3 emission;
+};
+
 struct Material
 {
     glm::vec3 color;
@@ -81,6 +101,7 @@ struct RenderState
     int traceDepth;
     std::vector<glm::vec3> image;
     std::string imageName;
+    IntegratorType integrator;
 };
 
 struct PathSegment
