@@ -92,6 +92,10 @@ void Scene::loadFromJSON(const std::string& jsonName)
         {
             newGeom.type = SPHERE;
         }
+        else if (type == "quad")
+        {
+            newGeom.type = QUAD;
+        }
         else if (type == "triangle")
         {
             newGeom.type = TRIANGLE;
@@ -529,6 +533,13 @@ float Scene::calculateGeomArea(const Geom& geom) const {
             }
         }
         
+        case QUAD: {
+            // Unit quad area (1x1) scaled by transform
+            glm::vec3 edge1 = glm::vec3(geom.transform * glm::vec4(1, 0, 0, 0)); // X direction
+            glm::vec3 edge2 = glm::vec3(geom.transform * glm::vec4(0, 1, 0, 0)); // Y direction
+            return glm::length(glm::cross(edge1, edge2));
+        }
+
         case TRIANGLE: {
             glm::vec3 v0 = geom.triangle.v0;
             glm::vec3 v1 = geom.triangle.v1;

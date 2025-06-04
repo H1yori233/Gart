@@ -124,20 +124,123 @@ __host__ __device__ glm::vec3 samplePointOnGeom(
         areaPdf = 1.0f / area;
         return worldPoint;
     } else if (geom.type == CUBE) {
-        float u = u01(rng);
-        float v = u01(rng);
-
-        glm::vec3 localPoint(-0.5f + u, 0.5f, -0.5f + v);
-        glm::vec4 worldPoint4 = geom.transform * glm::vec4(localPoint, 1.0f);
-        glm::vec4 localNormal4(0, 1, 0, 0); // locally UP
-        lightNormal = glm::normalize(glm::vec3(geom.invTranspose * localNormal4));
-        
         glm::vec3 scaleVec = glm::vec3(
             glm::length(glm::vec3(geom.transform[0])),
             glm::length(glm::vec3(geom.transform[1])),
             glm::length(glm::vec3(geom.transform[2]))
         );
-        float area = scaleVec.x * scaleVec.z; // TOP Area
+
+        // Check if this is a thin/planar light (same logic as scene.cpp)
+        float min_dim = glm::min(scaleVec.x, glm::min(scaleVec.y, scaleVec.z));
+        float max_dim = glm::max(scaleVec.x, glm::max(scaleVec.y, scaleVec.z));
+        float ratio = min_dim / max_dim;
+
+        if (ratio < 0.1f) {
+            // Thin cube - sample from the thinnest face
+            float u = u01(rng);
+            float v = u01(rng);
+            
+            glm::vec3 localPoint;
+            glm::vec4 localNormal4;
+            float area;
+            
+            if (scaleVec.x == min_dim) {
+                // Sample from YZ face (thinnest in X direction)
+                localPoint = glm::vec3(-0.5f, -0.5f + u, -0.5f + v);
+                localNormal4 = glm::vec4(-1, 0, 0, 0);
+                area = scaleVec.y * scaleVec.z;
+            } else if (scaleVec.y == min_dim) {
+                // Sample from XZ face (thinnest in Y direction) 
+                localPoint = glm::vec3(-0.5f + u, -0.5f, -0.5f + v);
+                localNormal4 = glm::vec4(0, -1, 0, 0);
+                area = scaleVec.x * scaleVec.z;
+            } else {
+                // Sample from XY face (thinnest in Z direction)
+                localPoint = glm::vec3(-0.5f + u, -0.5f + v, -0.5f);
+                localNormal4 = glm::vec4(0, 0, -1, 0);
+                area = scaleVec.x * scaleVec.y;
+            }
+            
+            glm::vec4 worldPoint4 = geom.transform * glm::vec4(localPoint, 1.0f);
+            lightNormal = glm::normalize(glm::vec3(geom.invTranspose * localNormal4));
+            areaPdf = 1.0f / area;
+            return glm::vec3(worldPoint4);
+        } else {
+            // Full cube - sample from all 6 faces based on their relative areas
+            float total_area = 2.0f * (scaleVec.x * scaleVec.y + 
+                                       scaleVec.y * scaleVec.z + 
+                                       scaleVec.x * scaleVec.z);
+            
+            // Calculate cumulative areas for each face pair
+            float area_xy = scaleVec.x * scaleVec.y;
+            float area_yz = scaleVec.y * scaleVec.z;
+            float area_xz = scaleVec.x * scaleVec.z;
+            
+            float cum_xy = 2.0f * area_xy;
+            float cum_yz = cum_xy + 2.0f * area_yz;
+            float cum_xz = cum_yz + 2.0f * area_xz;
+            
+            float r = u01(rng) * total_area;
+            float u = u01(rng);
+            float v = u01(rng);
+            
+            glm::vec3 localPoint;
+            glm::vec4 localNormal4;
+            
+            if (r < cum_xy) {
+                // Sample from XY faces (top/bottom)
+                if (r < area_xy) {
+                    // Bottom face (z = -0.5)
+                    localPoint = glm::vec3(-0.5f + u, -0.5f + v, -0.5f);
+                    localNormal4 = glm::vec4(0, 0, -1, 0);
+                } else {
+                    // Top face (z = 0.5)
+                    localPoint = glm::vec3(-0.5f + u, -0.5f + v, 0.5f);
+                    localNormal4 = glm::vec4(0, 0, 1, 0);
+                }
+            } else if (r < cum_yz) {
+                // Sample from YZ faces (left/right)
+                if (r < cum_xy + area_yz) {
+                    // Left face (x = -0.5)
+                    localPoint = glm::vec3(-0.5f, -0.5f + u, -0.5f + v);
+                    localNormal4 = glm::vec4(-1, 0, 0, 0);
+                } else {
+                    // Right face (x = 0.5)
+                    localPoint = glm::vec3(0.5f, -0.5f + u, -0.5f + v);
+                    localNormal4 = glm::vec4(1, 0, 0, 0);
+                }
+            } else {
+                // Sample from XZ faces (front/back)
+                if (r < cum_yz + area_xz) {
+                    // Front face (y = -0.5)
+                    localPoint = glm::vec3(-0.5f + u, -0.5f, -0.5f + v);
+                    localNormal4 = glm::vec4(0, -1, 0, 0);
+                } else {
+                    // Back face (y = 0.5)
+                    localPoint = glm::vec3(-0.5f + u, 0.5f, -0.5f + v);
+                    localNormal4 = glm::vec4(0, 1, 0, 0);
+                }
+            }
+            
+            glm::vec4 worldPoint4 = geom.transform * glm::vec4(localPoint, 1.0f);
+            lightNormal = glm::normalize(glm::vec3(geom.invTranspose * localNormal4));
+            areaPdf = 1.0f / total_area;
+            return glm::vec3(worldPoint4);
+        }
+    } else if (geom.type == QUAD) {
+        float u = u01(rng);
+        float v = u01(rng);
+
+        // Sample uniformly on the unit quad [-0.5, 0.5] x [-0.5, 0.5] at z=0
+        glm::vec3 localPoint(-0.5f + u, -0.5f + v, 0.0f);
+        glm::vec4 worldPoint4 = geom.transform * glm::vec4(localPoint, 1.0f);
+        glm::vec4 localNormal4(0, 0, 1, 0); // Normal pointing in +z direction
+        lightNormal = glm::normalize(glm::vec3(geom.invTranspose * localNormal4));
+        
+        // Calculate area using cross product of transformed edges
+        glm::vec3 edge1 = glm::vec3(geom.transform * glm::vec4(1, 0, 0, 0)); // X direction
+        glm::vec3 edge2 = glm::vec3(geom.transform * glm::vec4(0, 1, 0, 0)); // Y direction
+        float area = glm::length(glm::cross(edge1, edge2));
         areaPdf = 1.0f / area;
         return glm::vec3(worldPoint4);
     } else if (geom.type == TRIANGLE) {
@@ -189,6 +292,8 @@ __device__ bool shadowTest(Ray ray, Geom* geoms, int geoms_size, float max_dista
             t = sphereIntersectionTest(geoms[i], ray, tmp_intersect, tmp_normal, outside);
         } else if (geoms[i].type == CUBE) {
             t = boxIntersectionTest(geoms[i], ray, tmp_intersect, tmp_normal, outside);
+        } else if (geoms[i].type == QUAD) {
+            t = quadIntersectionTest(geoms[i], ray, tmp_intersect, tmp_normal, outside);
         } else if (geoms[i].type == TRIANGLE) {
             t = triangleIntersectionTest(geoms[i], ray, tmp_intersect, tmp_normal, outside);
         }

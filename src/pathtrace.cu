@@ -234,6 +234,10 @@ __global__ void computeIntersections(
             {
                 t = boxIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
             }
+            else if (geom.type == QUAD)
+            {
+                t = quadIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+            }
             else if (geom.type == SPHERE)
             {
                 t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);

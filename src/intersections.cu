@@ -112,6 +112,54 @@ __host__ __device__ float sphereIntersectionTest(
     return glm::length(r.origin - intersectionPoint);
 }
 
+__host__ __device__ float quadIntersectionTest(
+    Geom quad,
+    Ray r,
+    glm::vec3 &intersectionPoint,
+    glm::vec3 &normal,
+    bool &outside)
+{
+    // Transform ray to object space
+    glm::vec3 ro = multiplyMV(quad.inverseTransform, glm::vec4(r.origin, 1.0f));
+    glm::vec3 rd = glm::normalize(multiplyMV(quad.inverseTransform, glm::vec4(r.direction, 0.0f)));
+
+    // Check if ray is parallel to the quad (z=0 plane)
+    if (glm::abs(rd.z) < EPSILON)
+        return -1;
+
+    // Calculate intersection with z=0 plane
+    float t = -ro.z / rd.z;
+    
+    if (t <= EPSILON)
+        return -1;
+
+    // Calculate intersection point in object space
+    glm::vec3 objspaceIntersection = ro + rd * t;
+
+    // Check if intersection point is within quad bounds [-0.5, 0.5] in x and y
+    if (glm::abs(objspaceIntersection.x) > 0.5f || glm::abs(objspaceIntersection.y) > 0.5f)
+        return -1;
+
+    // Project hit point onto plane to reduce floating-point error
+    objspaceIntersection.z = 0.0f;
+
+    // Transform intersection point back to world space
+    intersectionPoint = multiplyMV(quad.transform, glm::vec4(objspaceIntersection, 1.0f));
+
+    // Calculate normal (always pointing in +z direction in object space)
+    glm::vec3 objspaceNormal = glm::vec3(0, 0, 1);
+    normal = glm::normalize(multiplyMV(quad.invTranspose, glm::vec4(objspaceNormal, 0.0f)));
+
+    // Check if ray is coming from outside (negative dot product with normal)
+    outside = glm::dot(r.direction, normal) < 0;
+    if (!outside)
+    {
+        normal = -normal;
+    }
+
+    return glm::length(r.origin - intersectionPoint);
+}
+
 __host__ __device__ float triangleIntersectionTest(
     Geom triangle_geom,
     Ray r,
